@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   keycloak:
-    build: .
+    build: ./keycloak_config
     ports:
       # Map host port 8443 to container port 8443 for HTTPS
       - "8443:8443"
