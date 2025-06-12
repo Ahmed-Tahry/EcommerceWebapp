@@ -4,8 +4,44 @@ services:
   keycloak:
     build: .
     ports:
+      # Map host port 8443 to container port 8443 for HTTPS
+      - "8443:8443"
+      # Optionally, map host port 8080 to container port 8080 for HTTP (if KC_HTTP_ENABLED=true)
       - "8080:8080"
     environment:
-      DB_VENDOR: h2
-      KEYCLOAK_USER: admin
-      KEYCLOAK_PASSWORD: admin
+      # Admin credentials are now set in the Dockerfile (KEYCLOAK_ADMIN, KEYCLOAK_ADMIN_PASSWORD)
+      # Database configuration (KC_DB) is also set in the Dockerfile.
+      # HTTPS certificate paths (KC_HTTPS_CERTIFICATE_FILE, KC_HTTPS_CERTIFICATE_KEY_FILE) are set in the Dockerfile.
+
+      # Example: Override Keycloak admin user if needed (defaults to admin/admin from Dockerfile)
+      # KEYCLOAK_ADMIN: newadmin
+      # KEYCLOAK_ADMIN_PASSWORD: newpassword
+
+      # For development with self-signed certificates, you might need to configure KC_HOSTNAME
+      # to match the CN of your certificate, or use relaxed HTTPS settings.
+      # KC_HOSTNAME: localhost # Example, if your cert is for 'localhost'
+      # KC_HOSTNAME_STRICT_HTTPS: "false" # Already set in Dockerfile, can be overridden
+      # KC_HTTP_ENABLED: "true" # Already set in Dockerfile
+      KC_PROXY: edge # Recommended if running behind a reverse proxy, even Docker's networking
+    volumes:
+      # Mount SSL certificate and private key from the host into the container
+      # IMPORTANT: You MUST provide these files in a 'certs' directory
+      # in the same directory as this docker-compose.yml file.
+      # Create ./certs/tls.crt and ./certs/tls.key with your SSL certificate and private key.
+      # For testing, you can generate self-signed certificates. E.g., using openssl:
+      # mkdir certs
+      # openssl req -x509 -newkey rsa:4096 -keyout certs/tls.key -out certs/tls.crt -days 365 -nodes -subj "/CN=localhost"
+      - ./certs/tls.crt:/etc/x509/https/tls.crt:ro
+      - ./certs/tls.key:/etc/x509/https/tls.key:ro
+    # Healthcheck (optional, but good practice)
+    # Keycloak's Quarkus distribution health endpoint is typically /q/health
+    # For older Wildfly versions it was /auth/health
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/q/health/ready"] # or https if http is disabled
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s # Give Keycloak some time to start up
+networks:
+  default:
+    name: keycloak_network
