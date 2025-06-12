@@ -101,17 +101,17 @@ if [ -n "$SALES_CLIENT_KC_ID" ]; then
 else
     $KCADM_CMD create clients -r $REALM_NAME \
       -s clientId=$SALES_CLIENT_ID \
-      -s name="Sales Dashboard" \
-      -s description="OIDC client for the Sales Dashboard UI application" \
+      -s name="Sales Dashboard Service" \
+      -s description="OIDC client for the Sales Dashboard backend service" \
       -s enabled=true \
       -s protocol=openid-connect \
       -s standardFlowEnabled=true \
       -s implicitFlowEnabled=false \
       -s directAccessGrantsEnabled=false \
-      -s serviceAccountsEnabled=false \
-      -s publicClient=true \ # UI/Frontend clients are often public
-      -s "redirectUris=[\"$SALES_REDIRECT_URI\", \"http://localhost:8083/*\"]" \
-      -s "webOrigins=[\"http://localhost:8083\", \"+\"]" # Add your frontend's origin
+      -s serviceAccountsEnabled=true \
+      -s publicClient=false \
+      -s "redirectUris=[\"$SALES_REDIRECT_URI\"]" \
+      -s "webOrigins=[\"+\"]" # Adjust webOrigins if this service doesn't need CORS from browsers
     echo "Client '$SALES_CLIENT_ID' created."
 fi
 
