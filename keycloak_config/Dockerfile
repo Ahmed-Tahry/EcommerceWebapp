@@ -6,10 +6,15 @@ FROM quay.io/keycloak/keycloak:latest
 ENV KEYCLOAK_ADMIN=admin
 ENV KEYCLOAK_ADMIN_PASSWORD=admin
 
-# Set database vendor to H2 (embedded, for development/testing)
-# For Quarkus, use KC_DB and related variables. KC_DB=h2 is for embedded H2.
-# Using 'dev-file' for KC_DB is also an option for non-production H2.
-ENV KC_DB=h2
+# Set database vendor to PostgreSQL
+# For Quarkus, use KC_DB and related variables.
+ENV KC_DB=postgres
+
+# PostgreSQL connection details (placeholders, will be set in docker-compose.yml)
+ENV KC_DB_URL=jdbc:postgresql://<host>:<port>/<database>
+ENV KC_DB_USERNAME=<user>
+ENV KC_DB_PASSWORD=<password>
+ENV KC_DB_SCHEMA=public
 
 # --- HTTPS Configuration ---
 # Keycloak will look for TLS certificate and key at these paths by default if https is enabled.
