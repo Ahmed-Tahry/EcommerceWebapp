@@ -1,0 +1,129 @@
+_format_version: "3.0"
+_comment: "Declarative configuration for Kong Gateway with Consumers, JWT, ACLs, and JWT claims forwarded as headers"
+
+consumers:
+  - username: admin-user # Matches 'preferred_username' from Keycloak token
+    custom_id: admin-user-cid
+    tags: ["rbac-user", "admin"]
+  - username: tier1-user
+    custom_id: tier1-user-cid
+    tags: ["rbac-user", "tier1"]
+  - username: tier2-user
+    custom_id: tier2-user-cid
+    tags: ["rbac-user", "tier2"]
+  - username: tier3-user
+    custom_id: tier3-user-cid
+    tags: ["rbac-user", "tier3"]
+
+acls:
+  # Assign consumers to ACL groups
+  - consumer: admin-user # Can use username or custom_id
+    group: admin
+    tags: ["rbac-acl", "admin-group"]
+  - consumer: tier1-user
+    group: tier-1
+    tags: ["rbac-acl", "tier1-group"]
+  - consumer: tier2-user
+    group: tier-2
+    tags: ["rbac-acl", "tier2-group"]
+  - consumer: tier3-user
+    group: tier-3
+    tags: ["rbac-acl", "tier3-group"]
+
+services:
+  - name: example-service
+    url: http://httpbin.org/anything # Test upstream service
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 5000
+    read_timeout: 5000
+    retries: 3
+    tags: ["example", "httpbin", "backend"]
+    plugins:
+      - name: jwt # This plugin is applied to the service, so it protects all routes under it.
+        tags: ["auth", "jwt-validation", "service-plugin"]
+        config:
+          header_names: ["Authorization"]
+          key_claim_name: "preferred_username" # Kong will use this claim from the JWT to identify the Kong Consumer.
+          claims_to_verify: ["exp", "iss", "aud"]
+
+          jwks_uri: "http://keycloak-server:8080/realms/myapp-realm/protocol/openid-connect/certs"
+          issuer: "http://keycloak-server:8080/realms/myapp-realm"
+          audience: ["myapp-api", "account"]
+          # maximum_ttl: 3600 # Optional: Cache JWKS for 1 hour
+
+          # New: Forward specific JWT claims as headers to the upstream service
+          claims_to_headers:
+            - claim: sub # Standard subject claim
+              header: X-User-ID # Header name for the user's unique ID
+            - claim: realm_access.roles # Keycloak typically puts realm roles here
+              header: X-User-Roles # Header name for user roles (will likely be comma-separated if array)
+            - claim: preferred_username
+              header: X-User-Username # Header name for the username
+
+routes:
+  # Existing general example route (protected by JWT on the service)
+  - name: example-route
+    service: # Explicitly link to service by name
+      name: example-service
+    paths:
+      - /example
+    strip_path: true
+    methods: ["GET", "POST"]
+    tags: ["example", "httpbin-test"]
+
+  # --- RBAC Protected Routes ---
+  # All these routes are implicitly protected by the JWT plugin on 'example-service'.
+  # The ACL plugin adds an additional layer of authorization based on consumer groups.
+
+  - name: admin-route
+    service:
+      name: example-service
+    paths: ["/admin/test"]
+    strip_path: true
+    methods: ["GET", "POST"]
+    tags: ["rbac-test", "admin-access"]
+    plugins:
+      - name: acl
+        tags: ["auth", "acl-protection", "route-plugin"]
+        config:
+          allow: ["admin"] # Only consumers in the 'admin' group can access
+
+  - name: premium-route
+    service:
+      name: example-service
+    paths: ["/premium/test"]
+    strip_path: true
+    methods: ["GET", "POST"]
+    tags: ["rbac-test", "premium-access"]
+    plugins:
+      - name: acl
+        tags: ["auth", "acl-protection", "route-plugin"]
+        config:
+          allow: ["admin", "tier-1"] # Consumers in 'admin' OR 'tier-1' group
+
+  - name: standard-route
+    service:
+      name: example-service
+    paths: ["/standard/test"]
+    strip_path: true
+    methods: ["GET", "POST"]
+    tags: ["rbac-test", "standard-access"]
+    plugins:
+      - name: acl
+        tags: ["auth", "acl-protection", "route-plugin"]
+        config:
+          allow: ["admin", "tier-1", "tier-2"] # Consumers in 'admin' OR 'tier-1' OR 'tier-2'
+
+  - name: public-route # "public" in the sense that all authenticated tiers can access
+    service:
+      name: example-service
+    paths: ["/public/test"]
+    strip_path: true
+    methods: ["GET", "POST"]
+    tags: ["rbac-test", "public-tier-access"]
+    plugins:
+      - name: acl
+        tags: ["auth", "acl-protection", "route-plugin"]
+        config:
+          allow: ["admin", "tier-1", "tier-2", "tier-3"] # Any authenticated and tiered user

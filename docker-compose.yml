@@ -1,69 +1,154 @@
 version: '3.8'
 
 volumes:
-  postgres_data:
+  postgres_data: # For Keycloak's PostgreSQL
+    driver: local
+  kong_db_data: # For Kong's PostgreSQL
     driver: local
 
+networks:
+  keycloak_network: # Changed from default to be explicit
+    name: keycloak_kong_network # Renaming to reflect its new shared nature
+    driver: bridge
+
 services:
+  # Keycloak's PostgreSQL Database
   postgres-db:
     image: postgres:13
     container_name: postgres-db-keycloak
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloakadmin
-      POSTGRES_PASSWORD: StrongPassword123!
+      POSTGRES_PASSWORD: StrongPassword123! # Use actual secrets in production
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports: # Optional: Expose PostgreSQL port for debugging, not needed for Keycloak internal connection
+    ports: # Optional: Expose PostgreSQL port for debugging
       - "5432:5432"
+    networks:
+      - keycloak_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U keycloakadmin -d keycloak"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # Keycloak Service
   keycloak:
     build: ./keycloak_config
     container_name: keycloak-server
     ports:
-      # Map host port 8443 to container port 8443 for HTTPS
-      - "8443:8443"
-      # Optionally, map host port 8080 to container port 8080 for HTTP (if KC_HTTP_ENABLED=true)
-      - "8080:8080"
+      # Keycloak ports adjusted to avoid conflict with Kong
+      - "8180:8080" # Keycloak HTTP
+      - "8543:8443" # Keycloak HTTPS
     environment:
-      # Admin credentials are set in the Dockerfile
-      # Database configuration (KC_DB) is set in the Dockerfile to 'postgres'
-      # HTTPS certificate paths are set in the Dockerfile
-
-      # PostgreSQL connection details
-      KC_DB_URL: jdbc:postgresql://postgres-db/keycloak # 'postgres-db' is the service name of the PostgreSQL container
-      KC_DB_USERNAME: keycloakadmin # Must match POSTGRES_USER in postgres-db service
-      KC_DB_PASSWORD: StrongPassword123! # Must match POSTGRES_PASSWORD in postgres-db service
-      KC_DB_SCHEMA: public # Default schema for PostgreSQL
-
-      # KC_HOSTNAME: localhost # Example, if your cert is for 'localhost'
-      # KC_HOSTNAME_STRICT_HTTPS: "false" # Already set in Dockerfile
-      # KC_HTTP_ENABLED: "true" # Already set in Dockerfile
-      KC_PROXY: edge # Recommended if running behind a reverse proxy
+      # Admin credentials are in Dockerfile
+      # DB config (KC_DB=postgres) is in Dockerfile
+      # HTTPS cert paths are in Dockerfile
+      KC_DB_URL: jdbc:postgresql://postgres-db/keycloak
+      KC_DB_USERNAME: keycloakadmin
+      KC_DB_PASSWORD: StrongPassword123! # Use actual secrets in production
+      KC_DB_SCHEMA: public
+      KC_PROXY: edge # If behind a proxy like Kong
+      # For Keycloak to correctly form URLs when accessed via Kong on standard ports (80/443)
+      # These are examples, adjust if Kong is on different external ports or path based routing is used.
+      # KC_HOSTNAME_URL: https://your.kong.domain/auth # Base URL for Keycloak through Kong
+      # KC_HOSTNAME_ADMIN_URL: https://your.kong.domain/auth/admin # Admin console URL
+      # KC_HTTP_RELATIVE_PATH: /auth # If Keycloak is accessed under /auth path by Kong
     volumes:
-      # Mount SSL certificate and private key
-      # Create ./certs/tls.crt and ./certs/tls.key (e.g., self-signed for testing)
       - ./certs/tls.crt:/etc/x509/https/tls.crt:ro
       - ./certs/tls.key:/etc/x509/https/tls.key:ro
     depends_on:
       postgres-db:
-        condition: service_healthy # Wait for postgres-db to be healthy
+        condition: service_healthy
+    networks:
+      - keycloak_network
     healthcheck:
-      # Keycloak's Quarkus health endpoint
-      test: ["CMD", "curl", "-f", "http://localhost:8080/q/health/ready"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/q/health/ready"] # Internal port
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-networks:
-  default:
-    name: keycloak_network
-# Define the top-level volumes section (already added above for clarity)
-# volumes:
-#   postgres_data:
-#     driver: local
+
+  # Kong's PostgreSQL Database
+  kong-db:
+    image: postgres:13 # Kong 3.4 supports PostgreSQL 11-15
+    container_name: kong-database
+    environment:
+      POSTGRES_USER: kong
+      POSTGRES_DB: kong
+      POSTGRES_PASSWORD: kongpass # Use actual secrets in production
+    volumes:
+      - kong_db_data:/var/lib/postgresql/data
+    networks:
+      - keycloak_network
+    ports: # Optional: Expose Kong's DB port for debugging
+      - "5433:5432" # Mapped to host 5433 to avoid conflict with Keycloak's DB if exposed
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kong -d kong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Kong Database Migrations Service
+  kong-migrations:
+    image: kong:3.4 # Use the same Kong version as the main Kong service
+    container_name: kong-migrations
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kongpass # Use actual secrets in production
+      KONG_PG_DATABASE: kong
+    command: "kong migrations bootstrap"
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    networks:
+      - keycloak_network
+    restart: on-failure
+
+  # Kong Gateway Service
+  kong:
+    image: kong:3.4 # Specify Kong version
+    container_name: kong-gateway
+    environment:
+      KONG_DATABASE: postgres # Remains postgres to support DB-backed entities like plugins
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yaml # Path to declarative config file
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kongpass # Use actual secrets in production
+      KONG_PG_DATABASE: kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl # Admin API HTTP & HTTPS
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl # Proxy HTTP & HTTPS (container ports)
+      KONG_PLUGINS: bundled,jwt,acl # Add other plugins as needed
+      KONG_ANONYMOUS_REPORTS: "off" # Disable anonymous reports
+      # KONG_TRUSTED_IPS: "0.0.0.0/0" # Be careful with this in production
+      # KONG_REAL_IP_HEADER: "X-Forwarded-For" # If behind another L7 proxy
+    volumes: # Add volume for declarative configuration
+      - ./kong_config/kong.yaml:/usr/local/kong/declarative/kong.yaml:ro
+    ports:
+      # Kong Proxy ports
+      - "8000:8000"   # Kong proxy HTTP
+      - "8445:8443"   # Kong proxy HTTPS (host 8445 -> container 8443 to avoid Keycloak conflict)
+      # Kong Admin API ports
+      - "8001:8001"   # Kong admin API HTTP
+      - "8446:8444"   # Kong admin API HTTPS (host 8446 -> container 8444)
+    depends_on:
+      kong-migrations:
+        condition: service_completed_successfully # Ensures migrations run before Kong starts
+      kong-db: # Though migrations depend on db, explicit dependency here is also fine
+        condition: service_healthy
+    networks:
+      - keycloak_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -I -s -L http://localhost:8001/status | grep 'HTTP/1.1 200 OK'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s # Give Kong some time to start
+    restart: unless-stopped
