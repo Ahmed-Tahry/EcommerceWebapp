@@ -1,25 +1,91 @@
 import app from './app';
+import config from './config/config';
+import { testDBConnection, endDBPool, getDBPool } from './utils/db';
+import http from 'http'; // Import http module
 
-const PORT = process.env.PORT || 3000;
+let serverInstance: http.Server;
 
-const server = app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+async function startServer() {
+  console.log('Initializing database pool...');
+  getDBPool(); // Ensures pool is created using settings from config
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Rejection:', err);
-  server.close(() => {
+  console.log('Testing database connection...');
+  const dbConnected = await testDBConnection();
+
+  if (!dbConnected && config.env !== 'test') {
+    console.error('FATAL: Database connection failed. Server will not start or may be unstable.');
+    // For critical DB dependency, uncomment next line to prevent server start:
+    // process.exit(1);
+  } else if (dbConnected) {
+    console.log('Database connection successful.');
+  } else if (!dbConnected && config.env === 'test') {
+    console.warn('Database connection failed in TEST environment. Continuing server start for tests that might not need DB.');
+  }
+
+
+  serverInstance = app.listen(config.port, () => {
+    console.log(`Server is running on port ${config.port} in ${config.env} mode`);
+  });
+
+  serverInstance.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.syscall !== 'listen') {
+      throw error;
+    }
+    console.error(`Failed to start server on port ${config.port}: ${error.message}`);
     process.exit(1);
   });
+}
+
+async function shutdown(signal: string) {
+  console.log(`${signal} received. Shutting down gracefully...`);
+  if (serverInstance) {
+    serverInstance.close(async (err) => {
+      if (err) {
+        console.error('Error during HTTP server closing:', err);
+      } else {
+        console.log('HTTP server closed.');
+      }
+
+      await endDBPool(); // Ensure DB pool is closed
+
+      if (err) {
+        process.exit(1); // Exit with error if server close failed
+      } else {
+        process.exit(0); // Exit cleanly
+      }
+    });
+  } else {
+    // If serverInstance is not defined, just try to close DB pool
+    console.log('HTTP server was not running or already closed.');
+    await endDBPool();
+    process.exit(0);
+  }
+}
+
+// Handle common termination signals
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT')); // Ctrl+C
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Consider a more robust strategy for production, e.g., graceful shutdown
+  // shutdown('unhandledRejection'); // Potentially too aggressive
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
-  server.close(() => {
-    process.exit(1);
-  });
+  // Trigger graceful shutdown for uncaught exceptions
+  shutdown('uncaughtException');
 });
 
-export default server;
+startServer().catch(error => {
+    console.error("Critical error during server startup:", error);
+    process.exit(1);
+});
+
+// Exporting app for supertest and serverInstance for direct control (e.g. closing in tests)
+export { app, serverInstance };
+// Note: For tests that import 'server' as default, they will need to be updated
+// to use named import 'serverInstance' or manage server lifecycle via 'app'.
+// The Phase 1 test file was `import server from '../src/server';`
+// This will break. Test file update is in a later step.

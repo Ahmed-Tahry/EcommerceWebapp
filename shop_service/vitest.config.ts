@@ -1,18 +1,18 @@
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths'; // If you use tsconfig-paths for aliases
+import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
   plugins: [
-    tsconfigPaths(), // If you use path aliases like @/* from tsconfig.json
+    tsconfigPaths(),
   ],
   test: {
-    globals: true, // Optional: to use Vitest globals like describe, it, expect without importing
-    environment: 'node', // Specify Node.js environment for backend tests
+    globals: true,
+    environment: 'node',
     coverage: {
-      provider: 'c8', // or 'istanbul'
+      provider: 'c8',
       reporter: ['text', 'json', 'html'],
       reportsDirectory: './coverage',
     },
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'], // Pattern for test files
+    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
   },
 });
