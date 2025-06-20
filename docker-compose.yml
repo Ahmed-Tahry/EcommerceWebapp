@@ -88,4 +88,21 @@ services:
     networks:
       - keycloak_network
 
-  
+  shop_service:
+    build:
+      context: ./shop_service
+      dockerfile: Dockerfile
+    container_name: shop_service
+    ports:
+      - "3000:3000" # Exposes port 3000 on the host to port 3000 in the container
+    volumes:
+      - ./shop_service:/usr/src/app # Mounts the local shop_service directory into the container for development
+      - /usr/src/app/node_modules # Anonymous volume to prevent local node_modules from overwriting container's
+    environment:
+      - NODE_ENV=development
+      # - PORT=3000 # Already set in Dockerfile EXPOSE and server.ts, but can be overridden
+    networks:
+      - keycloak_network
+    # depends_on: # Add dependencies if this service relies on others (e.g., a database)
+    #   - postgres-db
+    restart: unless-stopped
