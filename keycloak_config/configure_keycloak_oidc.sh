@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bin/sh
 
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
 # --- Configuration Variables ---
-KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8080}"
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://keycloak:8080}"
 ADMIN_USER="${KEYCLOAK_ADMIN_USER:-admin}"
 ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin}" # Default password - CHANGE IN PRODUCTION & USE ENV VARS
 REALM_NAME="myapp-realm"
@@ -82,12 +82,12 @@ CLIENT_CONFIG_ARGS=(
   -s publicClient=true
   -s standardFlowEnabled=true  # Authorization Code Flow
   -s implicitFlowEnabled=false # Disable Implicit Flow for public clients using PKCE
-  -s directAccessGrantsEnabled=false # Disable Password Grant unless explicitly needed
+  -s directAccessGrantsEnabled=true # Disable Password Grant unless explicitly needed
   -s serviceAccountsEnabled=false # Not typically needed for a public client
   -s frontchannelLogout=true # Recommended for public clients
   -s "redirectUris=$MYAPP_API_REDIRECT_URIS"
   -s "webOrigins=$MYAPP_API_WEB_ORIGINS"
-  -s pkceCodeChallengeMethod=S256 # Enable PKCE with S256 method
+  #-s pkceCodeChallengeMethod=S256 # Enable PKCE with S256 method
 )
 
 if [ -n "$CLIENT_KC_INTERNAL_ID" ]; then

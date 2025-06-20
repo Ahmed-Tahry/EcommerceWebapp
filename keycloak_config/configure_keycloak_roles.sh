@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bin/sh
 
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
 # --- Configuration Variables ---
-KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8080}" # Use environment variable if set, otherwise default
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://keycloak:8080}" # Use environment variable if set, otherwise default
 ADMIN_USER="${KEYCLOAK_ADMIN_USER:-admin}" # Keycloak master admin
 ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin}" # Keycloak master admin password - CHANGE IN PRODUCTION & USE ENV VARS
 REALM_NAME="myapp-realm" # The realm we are configuring
@@ -31,7 +31,7 @@ USER_TIER3_PASSWORD="PasswordForTier3User789!"
 
 # Client ID that needs these roles in its scope
 # This client should be created by 'configure_keycloak_oidc.sh' for 'myapp-realm'
-TARGET_CLIENT_ID="myapp-client"
+TARGET_CLIENT_ID="myapp-api"
 
 # Path to Keycloak Admin CLI (kcadm.sh)
 KCADM_CMD="/opt/keycloak/bin/kcadm.sh"
@@ -52,9 +52,9 @@ echo "Admin login successful."
 echo "Checking and deleting old realm roles (if any)..."
 OLD_ROLES_TO_DELETE=("$OLD_ROLE_ADMIN_LEGACY" "$OLD_ROLE_CUSTOMER_LEGACY")
 for OLD_ROLE in "${OLD_ROLES_TO_DELETE[@]}"; do
-  if $KCADM_CMD get roles -r "$REALM_NAME" --rolename "$OLD_ROLE" > /dev/null 2>&1; then
+  if $KCADM_CMD get roles/"$OLD_ROLE" -r "$REALM_NAME" > /dev/null 2>&1; then
     echo "Deleting old realm role '$OLD_ROLE' from realm '$REALM_NAME'..."
-    $KCADM_CMD delete roles -r "$REALM_NAME" --rolename "$OLD_ROLE"
+    $KCADM_CMD delete roles/"$OLD_ROLE" -r "$REALM_NAME"
     echo "Old realm role '$OLD_ROLE' deleted."
   else
     echo "Old realm role '$OLD_ROLE' does not exist in realm '$REALM_NAME'. Skipping deletion."
@@ -71,7 +71,7 @@ NEW_ROLES_DESCRIPTIONS["$ROLE_TIER3"]="Tier 3 access role for premium features"
 
 for ROLE_NAME in "${!NEW_ROLES_DESCRIPTIONS[@]}"; do
   DESCRIPTION=${NEW_ROLES_DESCRIPTIONS[$ROLE_NAME]}
-  if $KCADM_CMD get roles -r "$REALM_NAME" --rolename "$ROLE_NAME" > /dev/null 2>&1; then
+  if $KCADM_CMD get roles/"$ROLE_NAME" -r "$REALM_NAME" > /dev/null 2>&1; then
     echo "Realm role '$ROLE_NAME' already exists in realm '$REALM_NAME'. Skipping creation."
   else
     echo "Creating realm role '$ROLE_NAME' in realm '$REALM_NAME'..."
@@ -81,7 +81,6 @@ for ROLE_NAME in "${!NEW_ROLES_DESCRIPTIONS[@]}"; do
 done
 
 # --- 4. Create New Test Users ---
-# Note: In a real scenario, user creation might be handled differently (e.g., user registration flow).
 echo "Checking and creating new test users..."
 declare -A USERS_PASSWORDS
 USERS_PASSWORDS["$USER_ADMIN_USERNAME"]="$USER_ADMIN_PASSWORD"
@@ -89,8 +88,17 @@ USERS_PASSWORDS["$USER_TIER1_USERNAME"]="$USER_TIER1_PASSWORD"
 USERS_PASSWORDS["$USER_TIER2_USERNAME"]="$USER_TIER2_PASSWORD"
 USERS_PASSWORDS["$USER_TIER3_USERNAME"]="$USER_TIER3_PASSWORD"
 
+# Define user attributes (email, firstName, lastName)
+declare -A USER_ATTRIBUTES
+USER_ATTRIBUTES["$USER_ADMIN_USERNAME"]="admin@myapp.com,Admin,User"
+USER_ATTRIBUTES["$USER_TIER1_USERNAME"]="tier1@myapp.com,Tier1,User"
+USER_ATTRIBUTES["$USER_TIER2_USERNAME"]="tier2@myapp.com,Tier2,User"
+USER_ATTRIBUTES["$USER_TIER3_USERNAME"]="tier3@myapp.com,Tier3,User"
+
 for USERNAME in "${!USERS_PASSWORDS[@]}"; do
   PASSWORD=${USERS_PASSWORDS[$USERNAME]}
+  # Split attributes into email, firstName, lastName
+  IFS=',' read -r EMAIL FIRSTNAME LASTNAME <<< "${USER_ATTRIBUTES[$USERNAME]}"
   # Check if user already exists by username
   if $KCADM_CMD get users -r "$REALM_NAME" -q username="$USERNAME" | jq -e ".[] | select(.username==\"$USERNAME\")" > /dev/null; then
     echo "User '$USERNAME' already exists in realm '$REALM_NAME'. Skipping creation."
@@ -100,8 +108,11 @@ for USERNAME in "${!USERS_PASSWORDS[@]}"; do
       -s username="$USERNAME" \
       -s enabled=true \
       -s emailVerified=true \
+      -s email="$EMAIL" \
+      -s firstName="$FIRSTNAME" \
+      -s lastName="$LASTNAME" \
       -s "credentials=[{\"type\":\"password\",\"value\":\"$PASSWORD\",\"temporary\":false}]"
-    echo "User '$USERNAME' created."
+    echo "User '$USERNAME' created with email='$EMAIL', firstName='$FIRSTNAME', lastName='$LASTNAME'."
   fi
 done
 
@@ -127,39 +138,24 @@ echo "Configuring client role scope mappings for client '$TARGET_CLIENT_ID' in r
 ROLES_TO_MAP_TO_CLIENT=("$ROLE_SUPER_ADMIN" "$ROLE_TIER1" "$ROLE_TIER2" "$ROLE_TIER3")
 
 echo "Fetching internal ID for client '$TARGET_CLIENT_ID'..."
-# Ensure client ID matching is exact using -q clientId=$TARGET_CLIENT_ID and then verify with jq
 CLIENT_INFO=$($KCADM_CMD get clients -r "$REALM_NAME" -q clientId="$TARGET_CLIENT_ID" --fields id,clientId --format json)
 CLIENT_INTERNAL_ID=$(echo "$CLIENT_INFO" | jq -r ".[] | select(.clientId==\"$TARGET_CLIENT_ID\") | .id")
-
 
 if [ -z "$CLIENT_INTERNAL_ID" ]; then
   echo "ERROR: Client '$TARGET_CLIENT_ID' not found in realm '$REALM_NAME'. Cannot configure role scope mappings."
   echo "Please ensure client '$TARGET_CLIENT_ID' is created (e.g., by 'configure_keycloak_oidc.sh') before running this script."
+  exit 1
 else
   echo "Client '$TARGET_CLIENT_ID' internal ID: $CLIENT_INTERNAL_ID."
   echo "Updating scope mappings for client '$TARGET_CLIENT_ID'..."
 
-  # Optional: Remove old roles from scope mappings if they were previously added
-  # This part is commented out but can be adapted if strict cleanup of old scope mappings is needed.
-  # OLD_ROLES_FOR_SCOPE_REMOVAL=("$OLD_ROLE_ADMIN_LEGACY" "$OLD_ROLE_CUSTOMER_LEGACY")
-  # for OLD_ROLE_NAME_SCOPE in "${OLD_ROLES_FOR_SCOPE_REMOVAL[@]}"; do
-  #   OLD_REALM_ROLE_ID_SCOPE=$($KCADM_CMD get roles -r "$REALM_NAME" --rolename "$OLD_ROLE_NAME_SCOPE" --fields id --format csv --noquotes)
-  #   if [ ! -z "$OLD_REALM_ROLE_ID_SCOPE" ]; then
-  #     if $KCADM_CMD get clients/"$CLIENT_INTERNAL_ID"/scope-mappings/realm -r "$REALM_NAME" | jq -e --arg ROLE_NAME "$OLD_ROLE_NAME_SCOPE" '.[] | select(.name==$ROLE_NAME)' > /dev/null; then
-  #       echo "Removing old realm role '$OLD_ROLE_NAME_SCOPE' from scope of client '$TARGET_CLIENT_ID'..."
-  #       $KCADM_CMD delete clients/"$CLIENT_INTERNAL_ID"/scope-mappings/realm/"$OLD_REALM_ROLE_ID_SCOPE" -r "$REALM_NAME"
-  #       echo "Old realm role '$OLD_ROLE_NAME_SCOPE' removed from scope for client '$TARGET_CLIENT_ID'."
-  #     fi
-  #   fi
-  # done
-
   # Add new roles to the client's scope mappings
-  # This makes these realm roles available in the access token for users authenticating via this client.
   for ROLE_NAME in "${ROLES_TO_MAP_TO_CLIENT[@]}"; do
-    REALM_ROLE_ID=$($KCADM_CMD get roles -r "$REALM_NAME" --rolename "$ROLE_NAME" --fields id --format csv --noquotes)
+    # Fetch the role ID by directly querying the specific role
+    REALM_ROLE_ID=$($KCADM_CMD get roles/"$ROLE_NAME" -r "$REALM_NAME" --fields id --format csv --noquotes 2>/dev/null || echo "")
     if [ -z "$REALM_ROLE_ID" ]; then
-        echo "WARNING: Realm role '$ROLE_NAME' not found in realm '$REALM_NAME'. Cannot map to client '$TARGET_CLIENT_ID'."
-        continue
+      echo "WARNING: Realm role '$ROLE_NAME' not found in realm '$REALM_NAME'. Cannot map to client '$TARGET_CLIENT_ID'."
+      continue
     fi
 
     echo "Checking if realm role '$ROLE_NAME' is already mapped to client '$TARGET_CLIENT_ID' scope..."
@@ -167,7 +163,6 @@ else
       echo "Realm role '$ROLE_NAME' is already mapped to client '$TARGET_CLIENT_ID' scope. Skipping."
     else
       echo "Adding realm role '$ROLE_NAME' (ID: $REALM_ROLE_ID) to scope of client '$TARGET_CLIENT_ID'..."
-      # The body needs to be an array of role representations.
       JSON_BODY_SINGLE_ROLE_MAP="[{\"id\": \"$REALM_ROLE_ID\", \"name\": \"$ROLE_NAME\"}]"
       $KCADM_CMD create clients/"$CLIENT_INTERNAL_ID"/scope-mappings/realm -r "$REALM_NAME" -b "$JSON_BODY_SINGLE_ROLE_MAP"
       echo "Realm role '$ROLE_NAME' added to scope for client '$TARGET_CLIENT_ID'."
@@ -176,7 +171,43 @@ else
   echo "Client scope mapping configuration finished for '$TARGET_CLIENT_ID'."
 fi
 
-# --- 7. Logout from Keycloak Admin CLI (Optional) ---
+# --- 7. Configure Protocol Mappers for Client to Include User Attributes ---
+echo "Configuring protocol mappers for client '$TARGET_CLIENT_ID' to include email, firstName, and lastName..."
+
+# Define mappers for email, firstName, and lastName
+declare -A PROTOCOL_MAPPERS
+PROTOCOL_MAPPERS["email"]="email"
+PROTOCOL_MAPPERS["givenName"]="firstName"
+PROTOCOL_MAPPERS["familyName"]="lastName"
+
+for ATTR_NAME in "${!PROTOCOL_MAPPERS[@]}"; do
+  CLAIM_NAME=${PROTOCOL_MAPPERS[$ATTR_NAME]}
+  echo "Checking if protocol mapper for '$CLAIM_NAME' exists for client '$TARGET_CLIENT_ID'..."
+  MAPPER_EXISTS=$($KCADM_CMD get clients/"$CLIENT_INTERNAL_ID"/protocol-mappers/models -r "$REALM_NAME" | jq -e --arg CLAIM_NAME "$CLAIM_NAME" '.[] | select(.name==$CLAIM_NAME)' > /dev/null && echo "true" || echo "false")
+  
+  if [ "$MAPPER_EXISTS" = "true" ]; then
+    echo "Protocol mapper for '$CLAIM_NAME' already exists for client '$TARGET_CLIENT_ID'. Skipping creation."
+  else
+    echo "Creating protocol mapper for '$CLAIM_NAME' for client '$TARGET_CLIENT_ID'..."
+    $KCADM_CMD create clients/"$CLIENT_INTERNAL_ID"/protocol-mappers/models -r "$REALM_NAME" -b '{
+      "name": "'"$CLAIM_NAME"'",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-usermodel-property-mapper",
+      "consentRequired": false,
+      "config": {
+        "user.attribute": "'"$ATTR_NAME"'",
+        "claim.name": "'"$CLAIM_NAME"'",
+        "jsonType.label": "String",
+        "id.token.claim": "true",
+        "access.token.claim": "true",
+        "userinfo.token.claim": "true"
+      }
+    }'
+    echo "Protocol mapper for '$CLAIM_NAME' created for client '$TARGET_CLIENT_ID'."
+  fi
+done
+
+# --- 8. Logout from Keycloak Admin CLI (Optional) ---
 # echo "Logging out from Keycloak Admin CLI..."
 # $KCADM_CMD config credentials --server $KEYCLOAK_URL --realm master # This command might vary depending on kcadm version, often clears context
 # echo "Admin logout successful."
