@@ -1,0 +1,13 @@
+FROM kong/kong-gateway:3.8
+
+USER root
+
+RUN apt-get update && apt-get install -y unzip curl
+
+# Install dependencies for luarocks and kong-oidc
+RUN apt-get install -y lua5.1 lua5.1-dev luarocks
+
+# Install kong-oidc plugin
+RUN luarocks install kong-oidc
+
+USER kong

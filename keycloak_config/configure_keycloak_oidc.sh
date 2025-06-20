@@ -1,143 +1,120 @@
-#!/bin/bash
+#!/bin/sh
 
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
 # --- Configuration Variables ---
-# TODO: Update these placeholder values with your actual configuration.
-KEYCLOAK_URL="http://localhost:8080"
-ADMIN_USER="admin"
-ADMIN_PASSWORD="admin" # Default password, change in production!
-REALM_NAME="microservices_realm"
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://keycloak:8080}"
+ADMIN_USER="${KEYCLOAK_ADMIN_USER:-admin}"
+ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin}" # Default password - CHANGE IN PRODUCTION & USE ENV VARS
+REALM_NAME="myapp-realm"
 
-INVOICE_CLIENT_ID="invoice_service"
-EMAIL_CLIENT_ID="email_service"
-SALES_CLIENT_ID="sales_dashboard_service"
+# New Client Configuration
+MYAPP_API_CLIENT_ID="myapp-api"
+# Common redirect URIs for development and production. Add more as needed.
+# Using "http://localhost:*" as a wildcard for local development on any port.
+MYAPP_API_REDIRECT_URIS='["http://localhost:8080/myapp/callback", "http://localhost:3000/callback", "https://myapp.com/callback", "http://localhost:*/callback", "http://127.0.0.1:*/callback"]'
+MYAPP_API_WEB_ORIGINS='["http://localhost:8080", "http://localhost:3000", "https://myapp.com", "http://localhost:*", "http://127.0.0.1:*"]'
 
-# These URIs are examples and should match your microservices' actual redirect URI configurations.
-INVOICE_REDIRECT_URI="http://localhost:8081/login/oauth2/code/keycloak"
-EMAIL_REDIRECT_URI="http://localhost:8082/login/oauth2/code/keycloak"
-SALES_REDIRECT_URI="http://localhost:8083/login/oauth2/code/keycloak" # For a UI application
+# Old Client IDs to be deleted
+OLD_INVOICE_CLIENT_ID="invoice_service"
+OLD_EMAIL_CLIENT_ID="email_service"
+OLD_SALES_CLIENT_ID="sales_dashboard_service"
 
 # Path to Keycloak Admin CLI (kcadm.sh)
-# Assumes kcadm.sh is in the PATH or the Keycloak bin directory.
-# If Keycloak is running in Docker, you might need to execute this script
-# inside the container or adjust kcadm.sh path accordingly.
-KCADM_CMD="kcadm.sh" # Or "/opt/jboss/keycloak/bin/kcadm.sh" if inside the official container
+KCADM_CMD="/opt/keycloak/bin/kcadm.sh"
+# If kcadm.sh is in PATH and keycloak is local, this might work:
+# KCADM_CMD="kcadm.sh"
 
-echo "--- Starting Keycloak OIDC Configuration ---"
+echo "--- Starting Keycloak OIDC Configuration for realm '$REALM_NAME' ---"
+echo "Keycloak URL: $KEYCLOAK_URL"
+echo "Target Realm: $REALM_NAME"
+echo "Target Client ID: $MYAPP_API_CLIENT_ID"
 
 # --- 1. Login to Keycloak Admin CLI ---
-echo "Attempting to log in to Keycloak as admin..."
-$KCADM_CMD config credentials --server $KEYCLOAK_URL --realm master --user $ADMIN_USER --password $ADMIN_PASSWORD
-echo "Login successful."
+echo "Attempting to log in to Keycloak ($KEYCLOAK_URL) as admin user '$ADMIN_USER'..."
+$KCADM_CMD config credentials --server "$KEYCLOAK_URL" --realm master --user "$ADMIN_USER" --password "$ADMIN_PASSWORD"
+echo "Admin login successful."
 
-# --- 2. Create New Realm ---
+# --- 2. Create or Update Realm ---
 echo "Checking if realm '$REALM_NAME' already exists..."
-if $KCADM_CMD get realms/$REALM_NAME > /dev/null 2>&1; then
-  echo "Realm '$REALM_NAME' already exists. Skipping creation."
+if $KCADM_CMD get realms/"$REALM_NAME" > /dev/null 2>&1; then
+  echo "Realm '$REALM_NAME' already exists. Updating token settings..."
+  $KCADM_CMD update realms/"$REALM_NAME" \
+    -s accessTokenLifespan=900 \
+    -s ssoSessionIdleTimeout=3600 \
+    -s ssoSessionMaxLifespan=3600
+  echo "Realm '$REALM_NAME' token settings updated."
 else
-  echo "Creating realm '$REALM_NAME'..."
-  $KCADM_CMD create realms -s realm=$REALM_NAME -s enabled=true
-  echo "Realm '$REALM_NAME' created successfully."
+  echo "Creating realm '$REALM_NAME' with token settings..."
+  $KCADM_CMD create realms -s realm="$REALM_NAME" -s enabled=true \
+    -s accessTokenLifespan=900 \
+    -s ssoSessionIdleTimeout=3600 \
+    -s ssoSessionMaxLifespan=3600
+  echo "Realm '$REALM_NAME' created successfully with token settings."
 fi
 
-# --- 3. Create OIDC Client for Invoice Microservice ---
-echo "Creating OIDC client for Invoice microservice ('$INVOICE_CLIENT_ID')..."
-# Check if client already exists
-INVOICE_CLIENT_KC_ID=$($KCADM_CMD get clients -r $REALM_NAME --fields id,clientId | jq -r ".[] | select(.clientId==\"$INVOICE_CLIENT_ID\") | .id")
+# --- 3. Delete Old Clients (if they exist) ---
+echo "Checking and deleting old clients..."
+OLD_CLIENT_IDS_TO_DELETE=("$OLD_INVOICE_CLIENT_ID" "$OLD_EMAIL_CLIENT_ID" "$OLD_SALES_CLIENT_ID")
+for OLD_CLIENT_ID in "${OLD_CLIENT_IDS_TO_DELETE[@]}"; do
+  # Check if client exists by clientId
+  CLIENT_KC_INTERNAL_ID=$($KCADM_CMD get clients -r "$REALM_NAME" -q clientId="$OLD_CLIENT_ID" --fields id --format csv --noquotes)
+  if [ -n "$CLIENT_KC_INTERNAL_ID" ]; then
+    echo "Deleting old client '$OLD_CLIENT_ID' (Internal ID: $CLIENT_KC_INTERNAL_ID) from realm '$REALM_NAME'..."
+    $KCADM_CMD delete clients/"$CLIENT_KC_INTERNAL_ID" -r "$REALM_NAME"
+    echo "Old client '$OLD_CLIENT_ID' deleted."
+  else
+    echo "Old client '$OLD_CLIENT_ID' does not exist in realm '$REALM_NAME'. Skipping deletion."
+  fi
+done
 
-if [ -n "$INVOICE_CLIENT_KC_ID" ]; then
-    echo "Client '$INVOICE_CLIENT_ID' already exists in realm '$REALM_NAME'. Skipping creation."
+# --- 4. Create or Update OIDC Client for myapp-api ---
+echo "Checking and creating/updating OIDC client '$MYAPP_API_CLIENT_ID'..."
+CLIENT_KC_INTERNAL_ID=$($KCADM_CMD get clients -r "$REALM_NAME" -q clientId="$MYAPP_API_CLIENT_ID" --fields id --format csv --noquotes)
+
+CLIENT_CONFIG_ARGS=(
+  -s clientId="$MYAPP_API_CLIENT_ID"
+  -s name="My App API Client"
+  -s description="Public OIDC client for My App API with PKCE"
+  -s enabled=true
+  -s protocol=openid-connect
+  -s publicClient=true
+  -s standardFlowEnabled=true  # Authorization Code Flow
+  -s implicitFlowEnabled=false # Disable Implicit Flow for public clients using PKCE
+  -s directAccessGrantsEnabled=true # Disable Password Grant unless explicitly needed
+  -s serviceAccountsEnabled=false # Not typically needed for a public client
+  -s frontchannelLogout=true # Recommended for public clients
+  -s "redirectUris=$MYAPP_API_REDIRECT_URIS"
+  -s "webOrigins=$MYAPP_API_WEB_ORIGINS"
+  #-s pkceCodeChallengeMethod=S256 # Enable PKCE with S256 method
+)
+
+if [ -n "$CLIENT_KC_INTERNAL_ID" ]; then
+    echo "Client '$MYAPP_API_CLIENT_ID' already exists (Internal ID: $CLIENT_KC_INTERNAL_ID). Updating configuration..."
+    $KCADM_CMD update clients/"$CLIENT_KC_INTERNAL_ID" -r "$REALM_NAME" "${CLIENT_CONFIG_ARGS[@]}"
+    echo "Client '$MYAPP_API_CLIENT_ID' updated."
 else
-    $KCADM_CMD create clients -r $REALM_NAME \
-      -s clientId=$INVOICE_CLIENT_ID \
-      -s name="Invoice Service" \
-      -s description="OIDC client for the Invoice microservice" \
-      -s enabled=true \
-      -s protocol=openid-connect \
-      -s standardFlowEnabled=true \
-      -s implicitFlowEnabled=false \
-      -s directAccessGrantsEnabled=true \
-      -s serviceAccountsEnabled=true \
-      -s publicClient=false \
-      -s "redirectUris=[\"$INVOICE_REDIRECT_URI\"]" \
-      -s "webOrigins=[\"+\"]" # Add appropriate web origins if needed for CORS
-    echo "Client '$INVOICE_CLIENT_ID' created."
-    # Optional: Get the internal ID of the created client
-    # INVOICE_CLIENT_INTERNAL_ID=$($KCADM_CMD get clients -r $REALM_NAME -q clientId=$INVOICE_CLIENT_ID --fields id --format csv --noquotes)
-    # echo "Invoice client internal ID: $INVOICE_CLIENT_INTERNAL_ID"
+    echo "Creating client '$MYAPP_API_CLIENT_ID'..."
+    $KCADM_CMD create clients -r "$REALM_NAME" "${CLIENT_CONFIG_ARGS[@]}"
+    echo "Client '$MYAPP_API_CLIENT_ID' created."
 fi
 
-# --- 4. Create OIDC Client for Email Microservice ---
-echo "Creating OIDC client for Email microservice ('$EMAIL_CLIENT_ID')..."
-EMAIL_CLIENT_KC_ID=$($KCADM_CMD get clients -r $REALM_NAME --fields id,clientId | jq -r ".[] | select(.clientId==\"$EMAIL_CLIENT_ID\") | .id")
+# Note on Role Claims:
+# The `configure_keycloak_roles.sh` script maps realm roles (admin, tier-1, etc.)
+# to this client's scope. This typically makes them available in the `realm_access.roles`
+# claim of the JWT. If a custom claim (e.g., "roles") is needed, additional protocol mappers
+# would be configured for the '$MYAPP_API_CLIENT_ID' client. For now, default behavior is assumed.
 
-if [ -n "$EMAIL_CLIENT_KC_ID" ]; then
-    echo "Client '$EMAIL_CLIENT_ID' already exists in realm '$REALM_NAME'. Skipping creation."
-else
-    $KCADM_CMD create clients -r $REALM_NAME \
-      -s clientId=$EMAIL_CLIENT_ID \
-      -s name="Email Service" \
-      -s description="OIDC client for the Email microservice" \
-      -s enabled=true \
-      -s protocol=openid-connect \
-      -s standardFlowEnabled=true \
-      -s implicitFlowEnabled=false \
-      -s directAccessGrantsEnabled=true \
-      -s serviceAccountsEnabled=true \
-      -s publicClient=false \
-      -s "redirectUris=[\"$EMAIL_REDIRECT_URI\"]" \
-      -s "webOrigins=[\"+\"]"
-    echo "Client '$EMAIL_CLIENT_ID' created."
-fi
-
-# --- 5. Create OIDC Client for Sales Dashboard Microservice (UI Application) ---
-echo "Creating OIDC client for Sales Dashboard microservice ('$SALES_CLIENT_ID')..."
-SALES_CLIENT_KC_ID=$($KCADM_CMD get clients -r $REALM_NAME --fields id,clientId | jq -r ".[] | select(.clientId==\"$SALES_CLIENT_ID\") | .id")
-
-if [ -n "$SALES_CLIENT_KC_ID" ]; then
-    echo "Client '$SALES_CLIENT_ID' already exists in realm '$REALM_NAME'. Skipping creation."
-else
-    $KCADM_CMD create clients -r $REALM_NAME \
-      -s clientId=$SALES_CLIENT_ID \
-      -s name="Sales Dashboard Service" \
-      -s description="OIDC client for the Sales Dashboard backend service" \
-      -s enabled=true \
-      -s protocol=openid-connect \
-      -s standardFlowEnabled=true \
-      -s implicitFlowEnabled=false \
-      -s directAccessGrantsEnabled=false \
-      -s serviceAccountsEnabled=true \
-      -s publicClient=false \
-      -s "redirectUris=[\"$SALES_REDIRECT_URI\"]" \
-      -s "webOrigins=[\"+\"]" # Adjust webOrigins if this service doesn't need CORS from browsers
-    echo "Client '$SALES_CLIENT_ID' created."
-fi
-
-# --- 6. Optional: Add Service Account Roles (Client Credentials Grant) ---
-# If your services (e.g., invoice_service) need to call other services,
-# you might want to assign roles to their service accounts.
-
-# Example: Assign 'realm-management/query-users' role to invoice_service service account
-# This is a powerful role, use with caution and grant only necessary permissions.
-# SERVICE_ACCOUNT_USER_ID=$($KCADM_CMD get users -r $REALM_NAME -q username=service-account-$INVOICE_CLIENT_ID --fields id --format csv --noquotes)
-# if [ -n "$SERVICE_ACCOUNT_USER_ID" ]; then
-#   echo "Assigning realm-management.query-users to $INVOICE_CLIENT_ID service account..."
-#   $KCADM_CMD add-roles -r $REALM_NAME --uusername service-account-$INVOICE_CLIENT_ID --rolename query-users --cclientid realm-management
-#   echo "Role assigned."
-# else
-#   echo "Service account for $INVOICE_CLIENT_ID not found. This might happen if serviceAccountsEnabled was false or client was just created."
-# fi
-
-
-# --- 7. Logout (Optional) ---
+# --- 5. Logout (Optional) ---
 # echo "Logging out from Keycloak Admin CLI..."
-# $KCADM_CMD config credentials --server $KEYCLOAK_URL --realm master --user "" --password "" # Clear credentials
+# $KCADM_CMD config credentials --server "$KEYCLOAK_URL" --realm master # Clears current session
+# echo "Admin logout successful."
 
-echo "--- Keycloak OIDC Configuration Script Finished ---"
-echo "Please review the output above for any errors."
-echo "Make sure to make this script executable: chmod +x configure_keycloak_oidc.sh"
-echo "You will likely need to run this script INSIDE the Keycloak container or have kcadm.sh configured locally."
-echo "Example to run inside Docker: docker cp ./configure_keycloak_oidc.sh <container_id>:/tmp/ && docker exec -it <container_id> /tmp/configure_keycloak_oidc.sh"
-echo "You may also need to install 'jq' in the container if it's not present: apt-get update && apt-get install -y jq"
+echo "--- Keycloak OIDC Configuration Script for realm '$REALM_NAME' Finished ---"
+echo "Review the output above for any errors or warnings."
+echo "Ensure this script is executable: chmod +x $(basename "$0")"
+echo "This script should be run to set up the '$REALM_NAME' realm and the '$MYAPP_API_CLIENT_ID' client."
+echo "Run 'configure_keycloak_roles.sh' after this script to set up roles and users."
+echo "IMPORTANT: Review and change default admin passwords if this is for a production environment!"
+echo "Consider managing secrets like passwords through environment variables or a secrets manager."
