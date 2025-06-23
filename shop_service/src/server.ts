@@ -1,6 +1,6 @@
 import app from './app';
 import config from './config/config';
-import { testDBConnection, endDBPool, getDBPool } from './utils/db';
+import { testDBConnection, endDBPool, getDBPool, runMigrations } from './utils/db'; // Added runMigrations
 import http from 'http'; // Import http module
 
 let serverInstance: http.Server;
@@ -13,13 +13,22 @@ async function startServer() {
   const dbConnected = await testDBConnection();
 
   if (!dbConnected && config.env !== 'test') {
-    console.error('FATAL: Database connection failed. Server will not start or may be unstable.');
+    console.error('FATAL: Database connection failed. Migrations will not run and server may be unstable.');
     // For critical DB dependency, uncomment next line to prevent server start:
     // process.exit(1);
   } else if (dbConnected) {
     console.log('Database connection successful.');
+    // Run migrations after successful DB connection
+    try {
+      console.log('Running database migrations...');
+      await runMigrations();
+      console.log('Database migrations completed successfully.');
+    } catch (migrationError) {
+      console.error('FATAL: Database migrations failed. Server will not start.', migrationError);
+      process.exit(1); // Exit if migrations fail
+    }
   } else if (!dbConnected && config.env === 'test') {
-    console.warn('Database connection failed in TEST environment. Continuing server start for tests that might not need DB.');
+    console.warn('Database connection failed in TEST environment. Skipping migrations. Continuing server start for tests that might not need DB.');
   }
 
 

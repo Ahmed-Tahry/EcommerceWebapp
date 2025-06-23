@@ -100,4 +100,150 @@ describe('Shop Service API', () => {
       pool.query = originalQuery; // Restore original query function
     });
   });
+
+  // New tests for DB tables
+  describe('Database Tables CRUD (Offers, Orders, OrderItems)', () => {
+    const testOfferId = 'test-offer-001';
+    const testOrderId = 'test-order-001';
+    const testOrderItemId = 'test-orderitem-001';
+    const testEan = '1234567890123';
+
+    beforeAll(async () => {
+      // Clean up before tests, if necessary, or rely on migrations to set up
+      // For simplicity, assuming migrations have run and tables are empty or test data is non-conflicting
+      const pool = getDBPool();
+      try {
+        // Clean up any previous test data to ensure a clean slate
+        await pool.query('DELETE FROM order_items WHERE "orderItemId" = $1 OR ean = $2', [testOrderItemId, testEan]);
+        await pool.query('DELETE FROM orders WHERE "orderId" = $1', [testOrderId]);
+        await pool.query('DELETE FROM offers WHERE "offerId" = $1 OR ean = $2', [testOfferId, testEan]);
+        console.log('Cleaned up old test data for CRUD tests.');
+      } catch (error) {
+        console.warn('Could not clean up old test data, tables might not exist yet or other issue:', error);
+      }
+    });
+
+    afterAll(async () => {
+      // Clean up test data after tests
+      const pool = getDBPool();
+      try {
+        await pool.query('DELETE FROM order_items WHERE "orderItemId" = $1 OR ean = $2', [testOrderItemId, testEan]);
+        await pool.query('DELETE FROM orders WHERE "orderId" = $1', [testOrderId]);
+        await pool.query('DELETE FROM offers WHERE "offerId" = $1 OR ean = $2', [testOfferId, testEan]);
+        console.log('Cleaned up test data after CRUD tests.');
+      } catch (error) {
+        console.error('Error cleaning up test data:', error);
+      }
+    });
+
+    it('should create and retrieve an offer', async () => {
+      const pool = getDBPool();
+      const offerData = {
+        offerId: testOfferId,
+        ean: testEan,
+        conditionName: 'New',
+        stockAmount: 10,
+        mutationDateTime: new Date(),
+      };
+      await pool.query(
+        'INSERT INTO offers ("offerId", ean, "conditionName", "stockAmount", "mutationDateTime") VALUES ($1, $2, $3, $4, $5)',
+        [offerData.offerId, offerData.ean, offerData.conditionName, offerData.stockAmount, offerData.mutationDateTime]
+      );
+
+      const { rows } = await pool.query('SELECT * FROM offers WHERE "offerId" = $1', [testOfferId]);
+      expect(rows.length).toBe(1);
+      expect(rows[0].ean).toBe(testEan);
+      expect(rows[0].stockAmount).toBe(10);
+    });
+
+    it('should create and retrieve an order with order items', async () => {
+      const pool = getDBPool();
+      const orderData = {
+        orderId: testOrderId,
+        orderPlacedDateTime: new Date(),
+        orderItems: JSON.stringify([{ itemId: 'itemA', quantity: 1 }, { itemId: 'itemB', quantity: 2 }]), // Example JSONB content
+      };
+      await pool.query(
+        'INSERT INTO orders ("orderId", "orderPlacedDateTime", "orderItems") VALUES ($1, $2, $3)',
+        [orderData.orderId, orderData.orderPlacedDateTime, orderData.orderItems]
+      );
+
+      const orderItemData = {
+        orderItemId: testOrderItemId,
+        orderId: testOrderId,
+        ean: testEan,
+        quantity: 5,
+        fulfilmentMethod: 'SHIP',
+        latestChangedDateTime: new Date(),
+      };
+      await pool.query(
+        'INSERT INTO order_items ("orderItemId", "orderId", ean, quantity, "fulfilmentMethod", "latestChangedDateTime") VALUES ($1, $2, $3, $4, $5, $6)',
+        [orderItemData.orderItemId, orderItemData.orderId, orderItemData.ean, orderItemData.quantity, orderItemData.fulfilmentMethod, orderItemData.latestChangedDateTime]
+      );
+
+      // Retrieve order
+      const { rows: orderRows } = await pool.query('SELECT * FROM orders WHERE "orderId" = $1', [testOrderId]);
+      expect(orderRows.length).toBe(1);
+      expect(orderRows[0].orderItems).toEqual([{ itemId: 'itemA', quantity: 1 }, { itemId: 'itemB', quantity: 2 }]); // Check JSONB content
+
+      // Retrieve order item
+      const { rows: orderItemRows } = await pool.query('SELECT * FROM order_items WHERE "orderItemId" = $1', [testOrderItemId]);
+      expect(orderItemRows.length).toBe(1);
+      expect(orderItemRows[0].ean).toBe(testEan);
+      expect(orderItemRows[0].quantity).toBe(5);
+      expect(orderItemRows[0].orderId).toBe(testOrderId); // Check foreign key relationship
+    });
+
+     it('should update an existing offer', async () => {
+      const pool = getDBPool();
+      const newStockAmount = 20;
+      await pool.query('UPDATE offers SET "stockAmount" = $1 WHERE "offerId" = $2', [newStockAmount, testOfferId]);
+
+      const { rows } = await pool.query('SELECT "stockAmount" FROM offers WHERE "offerId" = $1', [testOfferId]);
+      expect(rows[0].stockAmount).toBe(newStockAmount);
+    });
+
+    it('should delete an offer (and cascade delete related order_items if FK was set up for offers)', async () => {
+      const pool = getDBPool();
+      // First, ensure related order_items that might prevent deletion are handled if necessary
+      // (For this test, we are deleting an offer not directly linked to the testOrderItemId via EAN in a strict FK way,
+      //  but good to be mindful of such dependencies)
+
+      await pool.query('DELETE FROM offers WHERE "offerId" = $1', [testOfferId]);
+      const { rows } = await pool.query('SELECT * FROM offers WHERE "offerId" = $1', [testOfferId]);
+      expect(rows.length).toBe(0);
+
+      // Verify dependent data is handled if cascading deletes are expected on other tables.
+      // Here, order_items are linked to orders, not directly offers by offerId.
+      // If ean was a foreign key from order_items to offers, that would be different.
+    });
+
+
+    it('should enforce NOT NULL constraints (example: offers.ean)', async () => {
+      const pool = getDBPool();
+      try {
+        await pool.query('INSERT INTO offers ("offerId", ean) VALUES ($1, NULL)', ['test-offer-null-ean']);
+        // If it reaches here, the constraint failed or didn't exist
+        throw new Error('NULL constraint on offers.ean was not enforced');
+      } catch (error: any) {
+        expect(error.message).toContain('null value in column "ean"'); // PostgreSQL error message
+      }
+    });
+
+    it('should enforce foreign key constraint from order_items to orders', async () => {
+        const pool = getDBPool();
+        const nonExistentOrderId = 'non-existent-order-id-for-fk-test';
+        try {
+            await pool.query(
+                'INSERT INTO order_items ("orderItemId", "orderId", ean, quantity) VALUES ($1, $2, $3, $4)',
+                ['fk-test-item-001', nonExistentOrderId, '0000000000000', 1]
+            );
+            throw new Error('Foreign key constraint order_items.orderId to orders.orderId was not enforced');
+        } catch (error: any) {
+            // PostgreSQL error code for foreign key violation is '23503'
+            expect(error.code === '23503' || error.message.includes('violates foreign key constraint')).toBe(true);
+        }
+    });
+
+  });
 });
