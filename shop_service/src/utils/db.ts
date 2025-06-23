@@ -81,3 +81,71 @@ export const endDBPool = async (): Promise<void> => {
         console.log('Database pool was not initialized or already closed.');
     }
 };
+
+// New Migration Runner Logic
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+const MIGRATIONS_DIR = path.join(__dirname, '../../migrations');
+
+export const runMigrations = async (): Promise<void> => {
+  const currentPool = getDBPool(); // Ensures pool is initialized
+  let client;
+  try {
+    client = await currentPool.connect();
+    console.log('Connected to DB for running migrations.');
+
+    // Create migrations table if it doesn't exist
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version VARCHAR(255) PRIMARY KEY,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Checked/created schema_migrations table.');
+
+    const migrationFiles = (await fs.readdir(MIGRATIONS_DIR))
+      .filter(file => file.endsWith('.sql'))
+      .sort();
+
+    if (migrationFiles.length === 0) {
+      console.log('No migration files found.');
+      return;
+    }
+
+    console.log(`Found migration files: ${migrationFiles.join(', ')}`);
+
+    for (const file of migrationFiles) {
+      const version = file.split('_')[0]; // Assumes naming like 001_create_tables.sql
+      const filePath = path.join(MIGRATIONS_DIR, file);
+
+      const res = await client.query('SELECT version FROM schema_migrations WHERE version = $1', [version]);
+      if (res.rowCount === 0) {
+        console.log(`Running migration: ${file}`);
+        const sql = await fs.readFile(filePath, 'utf-8');
+        await client.query('BEGIN'); // Start transaction
+        try {
+          await client.query(sql);
+          await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [version]);
+          await client.query('COMMIT'); // Commit transaction
+          console.log(`Successfully applied migration: ${file}`);
+        } catch (migrationError) {
+          await client.query('ROLLBACK'); // Rollback transaction on error
+          console.error(`Error running migration ${file}:`, migrationError);
+          throw migrationError; // Propagate error to stop further migrations
+        }
+      } else {
+        console.log(`Migration ${file} (version ${version}) already applied.`);
+      }
+    }
+    console.log('All migrations processed.');
+  } catch (error) {
+    console.error('Migration process failed:', error);
+    throw error; // Re-throw to indicate failure
+  } finally {
+    if (client) {
+      client.release();
+      console.log('Migration DB client released.');
+    }
+  }
+};
