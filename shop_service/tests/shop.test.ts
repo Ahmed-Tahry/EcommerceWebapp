@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { app, serverInstance as actualServerInstanceImport } from '../src/server';
 import { endDBPool, getDBPool, testDBConnection } from '../src/utils/db';
 import config from '../src/config/config';
+import { IOffer, IOrder, IOrderItem } from '../src/models/shop.model'; // Import interfaces
 
 let testAgent: request.SuperTest<request.Test>;
 let liveServer: Server; // To hold the actual running server instance for this test file
@@ -245,5 +246,266 @@ describe('Shop Service API', () => {
         }
     });
 
+  });
+
+  // --- Integration Tests for Offers CRUD ---
+  describe('Offers API CRUD', () => {
+    const testOfferData: IOffer = {
+      offerId: 'offerCRUD123',
+      ean: '1112223334445',
+      conditionName: 'Brand New',
+      stockAmount: 100,
+      bundlePricesPrice: 99.99,
+      mutationDateTime: new Date()
+    };
+    let createdOfferId: string;
+
+    beforeAll(async () => {
+        // Clean up any existing test offer to avoid conflicts
+        try {
+            await getDBPool().query('DELETE FROM offers WHERE "offerId" = $1 OR ean = $2', [testOfferData.offerId, testOfferData.ean]);
+        } catch (e) { /* ignore if table missing or other cleanup issue */ }
+    });
+
+    afterAll(async () => {
+        // Clean up created offer
+        if (createdOfferId) {
+            try {
+                await getDBPool().query('DELETE FROM offers WHERE "offerId" = $1', [createdOfferId]);
+            } catch (e) { /* ignore */ }
+        }
+         await getDBPool().query('DELETE FROM offers WHERE "offerId" = $1 OR ean = $2', [testOfferData.offerId, testOfferData.ean]);
+    });
+
+    it('POST /api/shop/offers - should create a new offer', async () => {
+      const response = await testAgent.post('/api/shop/offers').send(testOfferData);
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty('offerId', testOfferData.offerId);
+      expect(response.body.ean).toBe(testOfferData.ean);
+      expect(response.body.stockAmount).toBe(100);
+      createdOfferId = response.body.offerId; // Save for later tests
+    });
+
+    it('POST /api/shop/offers - should return 400 for missing required fields', async () => {
+        const { offerId, ...incompleteData } = testOfferData; // Removing offerId
+        const response = await testAgent.post('/api/shop/offers').send(incompleteData);
+        expect(response.status).toBe(400);
+        expect(response.body.message).toContain('Missing required fields');
+    });
+
+    it('GET /api/shop/offers/:offerId - should retrieve a specific offer', async () => {
+      expect(createdOfferId).toBeDefined(); // Ensure offer was created
+      const response = await testAgent.get(`/api/shop/offers/${createdOfferId}`);
+      expect(response.status).toBe(200);
+      expect(response.body.offerId).toBe(createdOfferId);
+      expect(response.body.ean).toBe(testOfferData.ean);
+    });
+
+    it('GET /api/shop/offers/:offerId - should return 404 for non-existent offer', async () => {
+      const response = await testAgent.get('/api/shop/offers/nonexistentoffer99');
+      expect(response.status).toBe(404);
+    });
+
+    it('GET /api/shop/offers - should retrieve all offers', async () => {
+        const response = await testAgent.get('/api/shop/offers');
+        expect(response.status).toBe(200);
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.some(o => o.offerId === createdOfferId)).toBe(true);
+    });
+
+    it('PUT /api/shop/offers/:offerId - should update an existing offer', async () => {
+      expect(createdOfferId).toBeDefined();
+      const updatedData = { stockAmount: 150, conditionName: 'Slightly Used' };
+      const response = await testAgent.put(`/api/shop/offers/${createdOfferId}`).send(updatedData);
+      expect(response.status).toBe(200);
+      expect(response.body.stockAmount).toBe(150);
+      expect(response.body.conditionName).toBe('Slightly Used');
+    });
+
+    it('PUT /api/shop/offers/:offerId - should return 404 for updating non-existent offer', async () => {
+      const response = await testAgent.put('/api/shop/offers/nonexistentoffer99').send({ stockAmount: 10 });
+      expect(response.status).toBe(404);
+    });
+
+    it('PUT /api/shop/offers/:offerId - should return 400 for empty update data', async () => {
+      const response = await testAgent.put(`/api/shop/offers/${createdOfferId}`).send({});
+      expect(response.status).toBe(400);
+    });
+
+    it('DELETE /api/shop/offers/:offerId - should delete an offer', async () => {
+      expect(createdOfferId).toBeDefined();
+      const response = await testAgent.delete(`/api/shop/offers/${createdOfferId}`);
+      expect(response.status).toBe(200); // Or 204 if implemented that way
+      expect(response.body.message).toContain('deleted successfully');
+
+      // Verify it's actually deleted
+      const getResponse = await testAgent.get(`/api/shop/offers/${createdOfferId}`);
+      expect(getResponse.status).toBe(404);
+      createdOfferId = ""; // Mark as deleted for afterAll cleanup
+    });
+
+    it('DELETE /api/shop/offers/:offerId - should return 404 for deleting non-existent offer', async () => {
+      const response = await testAgent.delete('/api/shop/offers/nonexistentoffer99');
+      expect(response.status).toBe(404);
+    });
+  });
+
+
+  // --- Integration Tests for Orders & OrderItems CRUD ---
+  // Using IOffer, IOrder, IOrderItem for type hints if not already imported at top
+  // import { IOffer, IOrder, IOrderItem } from '../src/models/shop.model';
+
+  describe('Orders and OrderItems API CRUD', () => {
+    let testOrderData: IOrder;
+    let testOrderItemData: IOrderItem;
+    let createdOrderId: string;
+    let createdOrderItemId: string;
+
+    const sampleOfferForOrderItem: IOffer = { // For EAN reference if needed by tests
+        offerId: 'refOfferForOrderItem',
+        ean: '9998887776665',
+        stockAmount: 5
+    };
+
+    beforeAll(async () => {
+        // Ensure the reference offer exists for EAN consistency if any test relies on it
+        try {
+            await getDBPool().query('DELETE FROM offers WHERE "offerId" = $1', [sampleOfferForOrderItem.offerId]);
+            await getDBPool().query('INSERT INTO offers ("offerId", ean, "stockAmount") VALUES ($1, $2, $3)',
+                [sampleOfferForOrderItem.offerId, sampleOfferForOrderItem.ean, sampleOfferForOrderItem.stockAmount]);
+        } catch (e) { console.warn("Could not setup sample offer for order item tests", e)}
+
+        testOrderData = {
+            orderId: 'orderCRUD123',
+            orderPlacedDateTime: new Date(),
+            orderItems: [{ itemId: 'itemInternalA', name: 'Test Internal Item A', quantity: 1 }] // Example of embedded items in order
+        };
+        testOrderItemData = {
+            orderItemId: 'orderItemCRUD123',
+            orderId: testOrderData.orderId, // Will link to createdOrder
+            ean: sampleOfferForOrderItem.ean, // Use EAN from a known/created offer
+            quantity: 2,
+            fulfilmentMethod: 'STANDARD_DELIVERY'
+        };
+    });
+
+    afterAll(async () => {
+        // Clean up: order items are deleted by cascade when order is deleted
+        if (createdOrderId) {
+            try {
+                await getDBPool().query('DELETE FROM orders WHERE "orderId" = $1', [createdOrderId]);
+            } catch (e) { /* ignore */ }
+        }
+        // Explicitly delete the specific test order item if it wasn't cascaded
+        if (createdOrderItemId && !createdOrderId) { // only if order deletion failed or wasn't run
+             try {
+                await getDBPool().query('DELETE FROM order_items WHERE "orderItemId" = $1', [createdOrderItemId]);
+            } catch (e) { /* ignore */ }
+        }
+        await getDBPool().query('DELETE FROM offers WHERE "offerId" = $1', [sampleOfferForOrderItem.offerId]);
+    });
+
+    // Order Tests
+    it('POST /api/shop/orders - should create a new order', async () => {
+      const response = await testAgent.post('/api/shop/orders').send(testOrderData);
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty('orderId', testOrderData.orderId);
+      expect(response.body.orderItems).toEqual(testOrderData.orderItems);
+      createdOrderId = response.body.orderId;
+      testOrderItemData.orderId = createdOrderId; // Link item to this order for next tests
+    });
+
+    it('GET /api/shop/orders/:orderId - should retrieve a specific order', async () => {
+      expect(createdOrderId).toBeDefined();
+      const response = await testAgent.get(`/api/shop/orders/${createdOrderId}`);
+      expect(response.status).toBe(200);
+      expect(response.body.orderId).toBe(createdOrderId);
+    });
+
+    it('GET /api/shop/orders - should retrieve all orders', async () => {
+        const response = await testAgent.get('/api/shop/orders');
+        expect(response.status).toBe(200);
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.some(o => o.orderId === createdOrderId)).toBe(true);
+    });
+
+    it('PUT /api/shop/orders/:orderId - should update an existing order', async () => {
+      expect(createdOrderId).toBeDefined();
+      const updatedOrderPayload = { orderItems: [{ itemId: 'itemInternalB', name: 'Updated Internal Item B', quantity: 5 }] };
+      const response = await testAgent.put(`/api/shop/orders/${createdOrderId}`).send(updatedOrderPayload);
+      expect(response.status).toBe(200);
+      expect(response.body.orderItems).toEqual(updatedOrderPayload.orderItems);
+    });
+
+    // OrderItem Tests (dependent on createdOrder)
+    it('POST /api/shop/order-items - should create a new order item linked to the order', async () => {
+      expect(createdOrderId).toBeDefined(); // Make sure order exists
+      testOrderItemData.orderId = createdOrderId; // Ensure it's linked
+      const response = await testAgent.post('/api/shop/order-items').send(testOrderItemData);
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty('orderItemId', testOrderItemData.orderItemId);
+      expect(response.body.orderId).toBe(createdOrderId);
+      expect(response.body.ean).toBe(testOrderItemData.ean);
+      expect(response.body.quantity).toBe(testOrderItemData.quantity);
+      createdOrderItemId = response.body.orderItemId;
+    });
+
+    it('POST /api/shop/order-items - should return 404 if referenced orderId does not exist', async () => {
+        const itemForNonExistentOrder = { ...testOrderItemData, orderItemId: 'itemForBadOrder', orderId: 'nonExistentOrder999' };
+        const response = await testAgent.post('/api/shop/order-items').send(itemForNonExistentOrder);
+        expect(response.status).toBe(404); // Service checks if order exists
+    });
+
+    it('GET /api/shop/order-items/:orderItemId - should retrieve a specific order item', async () => {
+      expect(createdOrderItemId).toBeDefined();
+      const response = await testAgent.get(`/api/shop/order-items/${createdOrderItemId}`);
+      expect(response.status).toBe(200);
+      expect(response.body.orderItemId).toBe(createdOrderItemId);
+    });
+
+    it('GET /api/shop/orders/:orderId/items - should retrieve all items for a specific order', async () => {
+      expect(createdOrderId).toBeDefined();
+      const response = await testAgent.get(`/api/shop/orders/${createdOrderId}/items`);
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      // Check if our created order item is in the list
+      expect(response.body.some(item => item.orderItemId === createdOrderItemId)).toBe(true);
+    });
+
+    it('PUT /api/shop/order-items/:orderItemId - should update an existing order item', async () => {
+      expect(createdOrderItemId).toBeDefined();
+      const updatedItemPayload = { quantity: 10, fulfilmentStatus: 'SHIPPED' };
+      const response = await testAgent.put(`/api/shop/order-items/${createdOrderItemId}`).send(updatedItemPayload);
+      expect(response.status).toBe(200);
+      expect(response.body.quantity).toBe(10);
+      expect(response.body.fulfilmentStatus).toBe('SHIPPED');
+    });
+
+    it('DELETE /api/shop/order-items/:orderItemId - should delete an order item', async () => {
+      expect(createdOrderItemId).toBeDefined();
+      const response = await testAgent.delete(`/api/shop/order-items/${createdOrderItemId}`);
+      expect(response.status).toBe(200); // Or 204
+      // Verify it's deleted
+      const getResponse = await testAgent.get(`/api/shop/order-items/${createdOrderItemId}`);
+      expect(getResponse.status).toBe(404);
+      createdOrderItemId = ""; // Mark as deleted
+    });
+
+    // Finally, delete the order (which should cascade to any remaining items if FK is set up)
+    it('DELETE /api/shop/orders/:orderId - should delete an order and cascade to its items', async () => {
+      expect(createdOrderId).toBeDefined();
+      const response = await testAgent.delete(`/api/shop/orders/${createdOrderId}`);
+      expect(response.status).toBe(200); // Or 204
+      // Verify order is deleted
+      const getOrderResponse = await testAgent.get(`/api/shop/orders/${createdOrderId}`);
+      expect(getOrderResponse.status).toBe(404);
+
+      // If an item was created and not individually deleted, check it's gone due to cascade
+      if (testOrderItemData.orderItemId && testOrderItemData.orderId === createdOrderId) { // Check if an item was associated
+          const getItemResponse = await testAgent.get(`/api/shop/order-items/${testOrderItemData.orderItemId}`);
+          expect(getItemResponse.status).toBe(404); // Should be gone due to cascade
+      }
+      createdOrderId = ""; // Mark as deleted
+    });
   });
 });
