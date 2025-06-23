@@ -112,3 +112,28 @@ services:
       postgres-db:
         condition: service_healthy
     restart: unless-stopped
+
+  settings_service:
+    build:
+      context: ./settings_service
+      dockerfile: Dockerfile
+    container_name: settings_service
+    ports:
+      - "3001:3000" # Different port than shop_service
+    volumes:
+      - ./settings_service:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      # - PORT=3000 # Already exposed and set in service by default
+      - DB_HOST=postgres-db
+      - DB_USER=keycloakadmin # Assuming same DB user for now
+      - DB_PASSWORD=StrongPassword123! # Assuming same DB password
+      - DB_NAME=SettingsDb # Different database name
+      - DB_PORT=5432
+    networks:
+      - keycloak_network
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    restart: unless-stopped
