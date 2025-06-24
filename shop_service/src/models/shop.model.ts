@@ -42,3 +42,18 @@ export interface IOrderItem {
   cancellationRequest?: boolean;
   latestChangedDateTime?: Date; // datetime in SQL
 }
+
+// Represents basic product information, potentially synced with Bol.com product content
+export interface IProduct {
+  ean: string; // Primary Key, EAN of the product
+  title?: string | null;
+  description?: string | null;
+  brand?: string | null;
+  // For simplicity, storing main image URL directly. Bol's asset structure is more complex.
+  mainImageUrl?: string | null;
+  // Storing other attributes as a flexible JSON object for now.
+  // Specific, frequently used attributes could be promoted to top-level fields if needed.
+  attributes?: Record<string, any> | null; // To store other Bol attributes like dimensions, series, etc.
+  lastSyncFromBol?: Date | null; // Timestamp of the last successful sync from Bol
+  lastSyncToBol?: Date | null;   // Timestamp of the last successful push to Bol
+}

@@ -57,6 +57,68 @@ export interface BolOrderItem {
   // Add other relevant fields from Bol API
 }
 
+// --- Interfaces for Product Content ---
+// Based on GET /retailer/content/products/{ean} response
+export interface BolProductAttributeValue {
+  value: string | number | boolean;
+  unitId?: string;
+}
+
+export interface BolProductAttribute {
+  id: string;
+  values: BolProductAttributeValue[];
+}
+
+export interface BolProductAssetVariant {
+  usage?: string; // e.g., PRIMARY, SECONDARY
+  format?: string; // e.g., image/jpeg
+  size?: string; // e.g., LARGE, MEDIUM, SMALL
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+export interface BolProductAsset {
+  type: string; // e.g., IMAGE_HEADER, IMAGE_P001
+  variants: BolProductAssetVariant[];
+}
+
+export interface BolProductContent {
+  ean: string;
+  language: string;
+  attributes: BolProductAttribute[];
+  assets: BolProductAsset[];
+}
+
+// Based on POST /retailer/content/products request body
+// (CreateProductContentSingleRequest)
+export interface BolCreateProductAttribute {
+  id: string;
+  values: Array<{ value: string | number | boolean; unitId?: string }>; // Simplified, ensure matches API
+}
+
+// Asset creation is more complex (uploading vs referencing).
+// For simplicity, we might only update text attributes initially or use a simplified asset update if available.
+// This interface is a placeholder for the asset part of the create/update payload.
+export interface BolCreateProductAsset {
+  type: string; // e.g. "IMAGE_P001"
+  // Details depend on how Bol expects assets to be provided (e.g., URL of a new image, reference to existing)
+  // For this iteration, we might omit asset updates or simplify heavily.
+  // Example: { type: "IMAGE_P001", url: "new_image_url_if_supported_directly" }
+  url?: string; // This is a major simplification, Bol's API is likely more complex for assets
+}
+
+
+export interface BolCreateProductContentPayload {
+  language: string;
+  data: {
+    ean: string;
+    attributes: BolCreateProductAttribute[];
+    assets?: BolCreateProductAsset[]; // Optional, as we might not update assets initially
+  };
+}
+
+
 // Define the structure for the Bol API error
 interface BolApiError {
   type: string;
@@ -263,6 +325,75 @@ class BolService {
       return []; // Return empty array on error to allow graceful handling, or rethrow if preferred
     }
   }
+
+  // --- Product Content Methods ---
+
+  public async fetchProductContent(ean: string, language: string = 'nl'): Promise<BolProductContent | null> {
+    try {
+      // The Accept header for content might be different, e.g. v9 for content.
+      // Checking documentation: /retailer/content/products/{ean} seems to use the standard v10 retailer header.
+      console.log(`Fetching product content for EAN ${ean}, language ${language} from Bol.com API...`);
+      const response = await this.apiClient.get<BolProductContent>(`/content/products/${ean}`, {
+        headers: {
+          // Ensure correct 'Accept' header if it differs for content API version
+          // For now, assuming v10 as per default apiClient setup.
+          // 'Accept': 'application/vnd.retailer.v9+json' // Example if it was v9
+        },
+        params: { language } // Pass language as a query parameter
+      });
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError<BolApiError>;
+      if (axiosError.response && axiosError.response.status === 404) {
+        console.log(`Product content not found for EAN ${ean}, language ${language}.`);
+        return null; // Not found is a valid case, not necessarily an error to halt everything.
+      }
+      this.handleApiError(axiosError, `fetchProductContent (ean: ${ean}, lang: ${language})`);
+      return null; // Or rethrow depending on desired error handling
+    }
+  }
+
+  public async upsertProductContent(payload: BolCreateProductContentPayload): Promise<ProcessStatus> {
+    try {
+      console.log(`Upserting product content for EAN ${payload.data.ean}, language ${payload.language} to Bol.com API...`);
+      // This endpoint is asynchronous and returns a ProcessStatus
+      const response = await this.apiClient.post<ProcessStatus>('/content/products', payload, {
+         headers: {
+          // The Content-Type for this specific endpoint might differ, e.g. if it's a specific content version.
+          // Bol's doc for POST /content/products uses:
+          // 'Content-Type': 'application/vnd.retailer.v9+json'
+          // 'Accept': 'application/vnd.retailer.v9+json'
+          // This needs to be set specifically for this call if different from client default.
+          // For now, let's assume the default v10 is fine, or adjust if testing shows v9 is needed.
+          // If v9, the apiClient might need a way to override headers per call or a separate client instance.
+          // Let's try with default v10 headers first.
+         }
+      });
+      console.log(`Product content upsert initiated. Process ID: ${response.data.processStatusId}`);
+      return response.data; // This is the ProcessStatus object
+    } catch (error) {
+      this.handleApiError(error as AxiosError<BolApiError>, `upsertProductContent (ean: ${payload.data.ean}, lang: ${payload.language})`);
+      // Rethrow or return a specific error structure if needed
+      throw error; // Re-throw to allow ShopService to handle it
+    }
+  }
+
+  public async getProcessStatus(processId: string): Promise<ProcessStatus> {
+    // This method was somewhat generic in offer export, can be reused.
+    // Ensure the URL is correctly formed or use the link from the initial ProcessStatus response.
+    // For now, assuming a direct GET to the generic process status endpoint if the full URL isn't passed.
+    // It's better if the calling service (ShopService) constructs the full URL from the link.
+    // Here, we'll assume processId is just the ID, and we use the standard endpoint.
+    try {
+      console.log(`Fetching process status for ID ${processId}`);
+      const response = await this.apiClient.get<ProcessStatus>(`/process-status/${processId}`);
+      return response.data;
+    } catch (error) {
+      this.handleApiError(error as AxiosError<BolApiError>, `getProcessStatus (id: ${processId})`);
+      throw error;
+    }
+  }
+
 }
 
 // Example usage (you'll need to replace with actual credentials, likely from env vars)

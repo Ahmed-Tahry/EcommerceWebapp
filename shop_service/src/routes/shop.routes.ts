@@ -19,7 +19,12 @@ import {
     getOrderItemByIdHandler,
     getOrderItemsByOrderIdHandler,
     updateOrderItemHandler,
-    deleteOrderItemHandler
+    deleteOrderItemHandler,
+    // Product Content Handlers
+    getProductContentHandler,
+    syncProductFromBolHandler,
+    syncProductToBolHandler,
+    getBolProcessStatusHandler
 } from '../controllers/shop.controller';
 
 const router = Router();
@@ -58,5 +63,11 @@ router.put('/order-items/:orderItemId', updateOrderItemHandler);
 
 // Delete a specific order item by its ID
 router.delete('/order-items/:orderItemId', deleteOrderItemHandler);
+
+// Routes for Product Content
+router.get('/products/:ean/bol', getProductContentHandler); // Get Bol product content
+router.post('/products/:ean/sync-from-bol', syncProductFromBolHandler); // Sync content from Bol to local
+router.post('/products/:ean/sync-to-bol', syncProductToBolHandler); // Sync local content to Bol
+router.get('/bol/process-status/:processId', getBolProcessStatusHandler); // Generic Bol process status poller
 
 export default router;

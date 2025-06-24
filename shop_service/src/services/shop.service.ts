@@ -44,6 +44,240 @@ export async function createOffer(offerData: IOffer): Promise<IOffer> {
   }
 }
 
+// --- Product Model CRUD ---
+// Assuming IProduct is defined in ../models/shop.model.ts
+import { IProduct } from '../models/shop.model';
+import BolService, { BolProductContent, BolCreateProductContentPayload, BolCreateProductAttribute, ProcessStatus, BolProductAttribute } from './bol.service';
+
+
+export async function createProduct(productData: IProduct): Promise<IProduct> {
+  const pool = getDBPool();
+  // Using ON CONFLICT to handle potential duplicate EANs by updating existing record (upsert)
+  const query = `
+    INSERT INTO products (ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol")
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (ean) DO UPDATE SET
+      title = EXCLUDED.title,
+      description = EXCLUDED.description,
+      brand = EXCLUDED.brand,
+      "mainImageUrl" = EXCLUDED."mainImageUrl",
+      attributes = EXCLUDED.attributes,
+      "lastSyncFromBol" = EXCLUDED."lastSyncFromBol",
+      "lastSyncToBol" = EXCLUDED."lastSyncToBol"
+    RETURNING *;
+  `;
+  const values = [
+    productData.ean,
+    productData.title,
+    productData.description,
+    productData.brand,
+    productData.mainImageUrl,
+    productData.attributes ? JSON.stringify(productData.attributes) : null,
+    productData.lastSyncFromBol,
+    productData.lastSyncToBol,
+  ];
+  try {
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    console.error(`Error creating/updating product with EAN ${productData.ean}:`, error);
+    throw error;
+  }
+}
+
+export async function getProductByEan(ean: string): Promise<IProduct | null> {
+  const pool = getDBPool();
+  const query = 'SELECT * FROM products WHERE ean = $1;';
+  try {
+    const result = await pool.query(query, [ean]);
+    if (result.rows.length > 0) {
+      const product = result.rows[0];
+      // Ensure attributes are parsed if stored as JSON string
+      if (typeof product.attributes === 'string') {
+        product.attributes = JSON.parse(product.attributes);
+      }
+      return product;
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching product by EAN ${ean}:`, error);
+    throw error;
+  }
+}
+
+export async function updateProduct(ean: string, updateData: Partial<IProduct>): Promise<IProduct | null> {
+  const pool = getDBPool();
+  const setClauses: string[] = [];
+  const values: any[] = [];
+  let valueCount = 1;
+
+  for (let [key, value] of Object.entries(updateData)) {
+    if (value !== undefined && key !== 'ean') {
+      if (key === 'attributes' && typeof value === 'object' && value !== null) {
+        value = JSON.stringify(value); // Stringify attributes if it's an object
+      }
+      setClauses.push(`"${key}" = $${valueCount++}`);
+      values.push(value);
+    }
+  }
+
+  if (setClauses.length === 0) return getProductByEan(ean);
+  values.push(ean);
+
+  const query = `UPDATE products SET ${setClauses.join(', ')} WHERE ean = $${valueCount} RETURNING *;`;
+  try {
+    const result = await pool.query(query, values);
+    if (result.rows.length > 0) {
+      const product = result.rows[0];
+      if (typeof product.attributes === 'string') {
+        product.attributes = JSON.parse(product.attributes);
+      }
+      return product;
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error updating product EAN ${ean}:`, error);
+    throw error;
+  }
+}
+
+
+// --- Bol.com Product Content Synchronization ---
+
+function mapBolProductContentToLocal(bolContent: BolProductContent): Partial<IProduct> {
+  const localProduct: Partial<IProduct> = { ean: bolContent.ean };
+  const otherAttributes: Record<string, any> = {};
+
+  bolContent.attributes.forEach(attr => {
+    const value = attr.values[0]?.value; // Take first value for simplicity
+    if (value === undefined) return;
+
+    switch (attr.id.toLowerCase()) { // Normalize common Bol attribute IDs
+      case 'title':
+      case 'titel': // Dutch for title
+        localProduct.title = String(value);
+        break;
+      case 'description':
+      case 'beschrijving': // Dutch for description
+        localProduct.description = String(value);
+        break;
+      case 'brand':
+      case 'merk': // Dutch for brand
+        localProduct.brand = String(value);
+        break;
+      default:
+        otherAttributes[attr.id] = value;
+    }
+  });
+  localProduct.attributes = otherAttributes;
+
+  // Simplified main image URL mapping
+  const primaryAsset = bolContent.assets.find(
+    asset => asset.type === 'IMAGE_HEADER' || asset.variants.some(v => v.usage === 'PRIMARY')
+  );
+  if (primaryAsset) {
+    const largeVariant = primaryAsset.variants.find(v => v.size === 'LARGE') || primaryAsset.variants[0];
+    if (largeVariant) {
+      localProduct.mainImageUrl = largeVariant.url;
+    }
+  }
+  return localProduct;
+}
+
+export async function getBolProductContent(ean: string, language: string = 'nl'): Promise<Partial<IProduct> | null> {
+  const { clientId, clientSecret } = getBolCredentials();
+  const bolService = new BolService(clientId, clientSecret);
+  const bolContent = await bolService.fetchProductContent(ean, language);
+  if (!bolContent) {
+    console.log(`No Bol.com content found for EAN ${ean}, language ${language}.`);
+    return null;
+  }
+  return mapBolProductContentToLocal(bolContent);
+}
+
+export async function updateLocalProductFromBol(ean: string, language: string = 'nl'): Promise<IProduct | null> {
+  const mappedProductData = await getBolProductContent(ean, language);
+  if (!mappedProductData) {
+    throw new Error(`Could not fetch or map product content from Bol.com for EAN ${ean}.`);
+  }
+
+  const updatePayload: Partial<IProduct> = {
+    ...mappedProductData,
+    lastSyncFromBol: new Date(),
+  };
+
+  // Use createProduct which handles upsert logic based on EAN
+  return createProduct(updatePayload as IProduct); // Cast as IProduct assuming EAN is always present
+}
+
+export async function pushLocalProductToBol(ean: string, language: string = 'nl'): Promise<{ processId: string | null; message: string; error?: any }> {
+  const { clientId, clientSecret } = getBolCredentials();
+  const bolService = new BolService(clientId, clientSecret);
+
+  const localProduct = await getProductByEan(ean);
+  if (!localProduct) {
+    return { processId: null, message: `Product with EAN ${ean} not found locally.`, error: 'Local product not found' };
+  }
+
+  const attributes: BolCreateProductAttribute[] = [];
+  if (localProduct.title) attributes.push({ id: 'Title', values: [{ value: localProduct.title }] });
+  if (localProduct.description) attributes.push({ id: 'Description', values: [{ value: localProduct.description }] });
+  if (localProduct.brand) attributes.push({ id: 'Brand', values: [{ value: localProduct.brand }] });
+
+  if (localProduct.attributes) {
+    for (const key in localProduct.attributes) {
+      // Avoid re-adding title, desc, brand if they are also in the generic attributes map
+      if (!['title', 'description', 'brand'].includes(key.toLowerCase())) {
+         attributes.push({ id: key, values: [{ value: localProduct.attributes[key] }] });
+      }
+    }
+  }
+
+  // Asset update is simplified/omitted for now as per previous decisions.
+  // If mainImageUrl were to be sent, Bol's API for asset creation/linking would be needed.
+  const payload: BolCreateProductContentPayload = {
+    language,
+    data: { ean, attributes },
+  };
+
+  try {
+    const processStatus = await bolService.upsertProductContent(payload);
+    // After initiating, update local product's lastSyncToBol timestamp
+    // This is optimistic; actual success depends on polling processStatus.
+    // For simplicity now, we update immediately. A more robust solution would update after polling confirms success.
+    await updateProduct(ean, { lastSyncToBol: new Date() });
+
+    return { processId: processStatus.processStatusId, message: `Product content update initiated for EAN ${ean}. Poll process ID for status.` };
+  } catch (error) {
+    console.error(`Error pushing product EAN ${ean} to Bol:`, error);
+    return { processId: null, message: `Failed to initiate product content update for EAN ${ean}.`, error: (error as Error).message };
+  }
+}
+
+
+// Polling function for any ProcessStatus (can be reused)
+// Note: This is a simplified polling. In a real app, this might be a background job.
+export async function pollBolProcessStatus(processId: string, maxAttempts = 20, pollInterval = 5000): Promise<ProcessStatus> {
+    const { clientId, clientSecret } = getBolCredentials();
+    const bolService = new BolService(clientId, clientSecret);
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval)); // Delay
+        attempts++;
+        console.log(`Polling process status for ID ${processId}, attempt ${attempts}`);
+
+        const currentStatus = await bolService.getProcessStatus(processId);
+
+        if (currentStatus.status === 'SUCCESS' || currentStatus.status === 'FAILURE' || currentStatus.status === 'TIMEOUT') {
+            console.log(`Process ID ${processId} finished with status: ${currentStatus.status}`);
+            return currentStatus;
+        }
+        console.log(`Process ID ${processId} status: ${currentStatus.status}. Polling again...`);
+    }
+    throw new Error(`Process ID ${processId} timed out after ${maxAttempts} polling attempts.`);
+}
+
 
 // --- Bol.com Order Synchronization ---
 
@@ -55,6 +289,9 @@ export async function synchronizeBolOrders(
   latestChangedDate: string | null = null
 ): Promise<{ createdOrders: number; updatedOrders: number; createdItems: number; updatedItems: number; failedOrders: number; errors: string[] }> {
   const { clientId, clientSecret } = getBolCredentials();
+  // Ensure BolService is imported if not already at the top
+  // import BolService, { BolProductContent, BolCreateProductContentPayload, BolCreateProductAttribute, ProcessStatus } from './bol.service';
+  // import { IProduct } from '../models/shop.model'; // Assuming IProduct is in shop.model.ts
   const bolService = new BolService(clientId, clientSecret);
 
   let currentPage = 1;
@@ -175,11 +412,14 @@ export async function synchronizeBolOrders(
 }
 
 // --- Bol.com Integration for Offer Export ---
-import BolService from './bol.service'; // Assuming bol.service.ts is in the same directory
+// Moved BolService import to the top of the file if it's used by multiple sections.
+// import BolService from './bol.service'; // Already imported for Order Sync
 import { parse } from 'csv-parse';
-import { IOffer } from '../models/shop.model'; // Ensure IOffer is imported
+// import { IOffer } from '../models/shop.model'; // Already imported
 
 // Function to get Bol API credentials from environment variables
+// This function is already defined above for Order Sync, ensure it's unique or shareable.
+// For now, assuming it's fine as is.
 function getBolCredentials(): { clientId: string; clientSecret: string } {
   const clientId = process.env.BOL_CLIENT_ID;
   const clientSecret = process.env.BOL_CLIENT_SECRET;

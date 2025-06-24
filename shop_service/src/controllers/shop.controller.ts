@@ -66,6 +66,115 @@ export const syncBolOrdersHandler = async (req: Request, res: Response, next: Ne
   }
 };
 
+// --- Product Content Controllers ---
+
+export const getProductContentHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { ean } = req.params;
+    const language = req.query.language as string || 'nl'; // Default to Dutch
+
+    console.log(`getProductContentHandler: Fetching Bol.com product content for EAN ${ean}, lang ${language}...`);
+    const productContent = await ShopService.getBolProductContent(ean, language);
+
+    if (productContent) {
+      res.status(200).json(productContent);
+    } else {
+      res.status(404).json({ message: `Product content not found on Bol.com for EAN ${ean} and language ${language}.` });
+    }
+  } catch (error) {
+    console.error(`getProductContentHandler: Error fetching content for EAN ${req.params.ean}:`, error);
+    // Add specific error handling if needed, e.g., for Bol API errors
+    next(error);
+  }
+};
+
+export const syncProductFromBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { ean } = req.params;
+    const language = req.query.language as string || 'nl';
+
+    console.log(`syncProductFromBolHandler: Syncing product EAN ${ean} from Bol.com (lang ${language}) to local DB...`);
+    const updatedProduct = await ShopService.updateLocalProductFromBol(ean, language);
+
+    if (updatedProduct) {
+      res.status(200).json({ message: `Product EAN ${ean} synced from Bol.com and updated locally.`, product: updatedProduct });
+    } else {
+      // This case should ideally be handled by an error in ShopService if fetching/mapping fails
+      res.status(500).json({ message: `Failed to sync product EAN ${ean} from Bol.com.` });
+    }
+  } catch (error) {
+    console.error(`syncProductFromBolHandler: Error syncing EAN ${req.params.ean} from Bol:`, error);
+     if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
+      res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
+      return;
+    }
+    if (error instanceof Error && error.message.includes('Bol API Error')) {
+      res.status(502).json({ message: `Failed to retrieve product data from Bol.com for EAN ${req.params.ean}.`, details: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message.includes('Could not fetch or map product content')) {
+        res.status(404).json({ message: error.message });
+        return;
+    }
+    next(error);
+  }
+};
+
+export const syncProductToBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { ean } = req.params;
+    const language = req.query.language as string || 'nl';
+
+    console.log(`syncProductToBolHandler: Pushing local product EAN ${ean} content (lang ${language}) to Bol.com...`);
+    const result = await ShopService.pushLocalProductToBol(ean, language);
+
+    if (result.error) {
+        // Check if the error is "Local product not found"
+        if (result.error === 'Local product not found') {
+            res.status(404).json({ message: result.message, error: result.error });
+        } else {
+            res.status(500).json({ message: result.message, error: result.error });
+        }
+    } else {
+      // As content update is async, we return the processId for client to poll
+      res.status(202).json({
+        message: result.message,
+        processId: result.processId
+      });
+    }
+  } catch (error) {
+    console.error(`syncProductToBolHandler: Error pushing EAN ${req.params.ean} to Bol:`, error);
+    if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
+      res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
+      return;
+    }
+    // Bol API errors during the initial POST are caught by BolService and rethrown.
+    // The pushLocalProductToBol service method also catches these and returns an error object.
+    // So, further specific Bol API error check here might be redundant if service handles it.
+    next(error);
+  }
+};
+
+export const getBolProcessStatusHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { processId } = req.params;
+    console.log(`getBolProcessStatusHandler: Fetching status for process ID ${processId}...`);
+    const status = await ShopService.pollBolProcessStatus(processId, 1, 0); // Poll once immediately
+    res.status(200).json(status);
+  } catch (error) {
+    console.error(`getBolProcessStatusHandler: Error fetching status for process ID ${req.params.processId}:`, error);
+    if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
+      res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
+      return;
+    }
+     if (error instanceof Error && error.message.includes('Bol API Error')) {
+      res.status(502).json({ message: `Failed to retrieve process status from Bol.com for ID ${req.params.processId}.`, details: error.message });
+      return;
+    }
+    next(error);
+  }
+};
+
 // Handler for exporting offers as CSV
 export const exportOffersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
