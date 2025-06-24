@@ -2,18 +2,25 @@ import { Request, Response, NextFunction } from 'express';
 import * as SettingsService from '../services/settings.service';
 import { IAccountDetails, IVatSetting, IInvoiceSettings } from '../models/settings.model';
 
-// --- Account Details Handlers ---
+// --- Account Details Handlers (Per-User) ---
 export const getAccountDetailsHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const details = await SettingsService.getAccountDetails();
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+    }
+    const details = await SettingsService.getAccountDetailsByUserId(userId);
     if (details) {
-      // For security, don't send clientSecret unless explicitly requested & authorized
-      // For now, sending all, but this is a security note.
-      // Consider redacting clientSecret: const { bolClientSecret, ...safeDetails } = details;
+      // SECURITY NOTE: Consider redacting bolClientSecret before sending to client
+      // const { bolClientSecret, ...safeDetails } = details;
+      // res.status(200).json(safeDetails);
       res.status(200).json(details);
     } else {
-      // This state (null) should ideally be handled by service creating a default row.
-      res.status(404).json({ message: 'Account details not found or initialized.' });
+      // Service attempts to create a default if null, so this means creation might have failed or still null.
+      // Or, it could mean no settings yet for this user, which is a valid state.
+      // Let's return 200 with nulls if that's the case, or 404 if service explicitly returns null for "not found".
+      // Based on current service, it will return null if not found.
+      res.status(404).json({ message: 'Account details not found for this user.' });
     }
   } catch (error) {
     next(error);
@@ -22,27 +29,78 @@ export const getAccountDetailsHandler = async (req: Request, res: Response, next
 
 export const saveAccountDetailsHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+    }
+
     const { bolClientId, bolClientSecret } = req.body;
-    // Basic validation: allow null to clear values, but at least one must be provided if not clearing.
-    // The service layer handles empty updates gracefully.
     if (bolClientId === undefined && bolClientSecret === undefined) {
-         // If body is empty or contains unrelated fields.
         return res.status(400).json({ message: 'Request body must contain at least one of: bolClientId, bolClientSecret.' });
     }
 
-    const detailsToSave: Partial<Omit<IAccountDetails, 'id' | 'createdAt' | 'updatedAt'>> = {};
-    if (bolClientId !== undefined) detailsToSave.bolClientId = bolClientId; // Can be null
-    if (bolClientSecret !== undefined) detailsToSave.bolClientSecret = bolClientSecret; // Can be null
+    const detailsToSave: Partial<Omit<IAccountDetails, 'id' | 'userId' | 'createdAt' | 'updatedAt'>> = {};
+    if (bolClientId !== undefined) detailsToSave.bolClientId = bolClientId;
+    if (bolClientSecret !== undefined) detailsToSave.bolClientSecret = bolClientSecret;
 
-    const savedDetails = await SettingsService.saveAccountDetails(detailsToSave);
-    // Consider redacting clientSecret: const { bolClientSecret: _, ...safeDetails } = savedDetails;
+    const savedDetails = await SettingsService.saveAccountDetails(userId, detailsToSave);
+    // SECURITY NOTE: Redact bolClientSecret from response
+    // const { bolClientSecret: _, ...safeResponse } = savedDetails;
+    // res.status(200).json(safeResponse);
     res.status(200).json(savedDetails);
   } catch (error) {
     next(error);
   }
 };
 
-// --- VAT Settings Handlers ---
+
+// --- User Onboarding Status Handlers ---
+export const getOnboardingStatusHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+    }
+    const status = await SettingsService.getOnboardingStatus(userId);
+    // getOnboardingStatus service method now creates a default if not found, so it should always return a status.
+    res.status(200).json(status);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateOnboardingStepHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+    }
+
+    // Expecting body like { "hasConfiguredBolApi": true } or other steps
+    const { hasConfiguredBolApi, ...otherSteps } = req.body; // Example, expand for more steps
+
+    const updates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'createdAt' | 'updatedAt'>> = {};
+
+    if (hasConfiguredBolApi !== undefined && typeof hasConfiguredBolApi === 'boolean') {
+      updates.hasConfiguredBolApi = hasConfiguredBolApi;
+    }
+    // Add logic for otherSteps if they are defined in IUserOnboardingStatus model
+    // e.g. if (otherSteps.hasCompletedVatSetup !== undefined) updates.hasCompletedVatSetup = Boolean(otherSteps.hasCompletedVatSetup);
+
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No valid onboarding step data provided.' });
+    }
+
+    const updatedStatus = await SettingsService.updateOnboardingStatus(userId, updates);
+    res.status(200).json(updatedStatus);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+// --- VAT Settings Handlers (Remain System-Wide) ---
 export const createVatSettingHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name, rate, isDefault } = req.body;

@@ -3,11 +3,15 @@ import * as SettingsController from '../controllers/settings.controller';
 
 const router = Router();
 
-// Account Details routes
+// Account Details routes (user-specific, identified by X-User-ID header)
 router.get('/account', SettingsController.getAccountDetailsHandler);
-router.post('/account', SettingsController.saveAccountDetailsHandler); // Using POST for save/update of single resource
+router.post('/account', SettingsController.saveAccountDetailsHandler);
 
-// VAT Settings routes
+// User Onboarding Status routes (user-specific, identified by X-User-ID header)
+router.get('/onboarding/status', SettingsController.getOnboardingStatusHandler);
+router.post('/onboarding/step', SettingsController.updateOnboardingStepHandler); // General endpoint to update any step based on body
+
+// VAT Settings routes (system-wide)
 router.post('/vat', SettingsController.createVatSettingHandler);
 router.get('/vat', SettingsController.getAllVatSettingsHandler);
 router.get('/vat/:id', SettingsController.getVatSettingByIdHandler);

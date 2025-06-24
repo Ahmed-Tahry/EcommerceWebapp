@@ -1,7 +1,18 @@
 export interface IAccountDetails {
-  id: string; // Should be a fixed value like 'primary' for single-row lookup
+  id: string; // Auto-generated UUID a PKeach row
+  userId: string; // From Keycloak (X-User-ID), should be unique for each user's settings
   bolClientId: string | null;
   bolClientSecret: string | null; // Store securely (e.g., encrypted or use a vault)
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IUserOnboardingStatus {
+  userId: string; // PK, from Keycloak (X-User-ID)
+  hasConfiguredBolApi: boolean;
+  // Add other boolean flags for steps as needed, e.g.:
+  // hasCompletedVatSetup?: boolean;
+  // hasCompletedInvoiceSetup?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
