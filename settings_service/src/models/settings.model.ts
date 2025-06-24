@@ -1,28 +1,28 @@
-// Defines the TypeScript interfaces for the settings_service data models.
-
-export interface IProductVat {
-  productId: string; // primary key
-  ean: string; // not null
-  productName: string; // not null
-  basePrice?: number | null; // decimal
-  vatRate: number; // decimal, not null
-  vatCategory?: string | null;
-  countryCode: string; // not null, e.g., ISO country code
-  isCompound?: boolean | null;
-  appliesToShipping?: boolean | null;
-  createdDateTime: Date;
-  updatedDateTime: Date;
-  isActive?: boolean | null;
+export interface IAccountDetails {
+  id: string; // Should be a fixed value like 'primary' for single-row lookup
+  bolClientId: string | null;
+  bolClientSecret: string | null; // Store securely (e.g., encrypted or use a vault)
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-export interface IAccountSetting {
-  accountId: string; // primary key
-  accountName: string; // not null
-  countryCode: string; // not null, links to products_vat.countryCode
-  currencyCode?: string | null; // e.g., ‘EUR’, ‘USD’
-  defaultFulfilmentMethod?: string | null; // e.g., ‘FBB’ or ‘FBA’
-  vatRegistrationNumber?: string | null;
-  createdDateTime: Date;
-  updatedDateTime: Date;
-  isActive?: boolean | null;
+export interface IVatSetting {
+  id: string; // UUID, auto-generated
+  name: string; // e.g., "High Rate", "Low Rate", "Zero Rate"
+  rate: number; // e.g., 21, 9, 0 (representing percentage)
+  isDefault?: boolean; // Optional: To mark one VAT rate as default
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IInvoiceSettings {
+  id: string; // Should be a fixed value like 'primary' for single-row lookup
+  companyName: string | null;
+  companyAddress: string | null; // Could be structured address object later
+  vatNumber: string | null;
+  defaultInvoiceNotes: string | null;
+  invoicePrefix?: string | null; // e.g., "INV-"
+  nextInvoiceNumber?: number; // To auto-increment invoice numbers
+  createdAt?: Date;
+  updatedAt?: Date;
 }

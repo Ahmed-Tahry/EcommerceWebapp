@@ -420,20 +420,46 @@ import { parse } from 'csv-parse';
 // Function to get Bol API credentials from environment variables
 // This function is already defined above for Order Sync, ensure it's unique or shareable.
 // For now, assuming it's fine as is.
-function getBolCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = process.env.BOL_CLIENT_ID;
-  const clientSecret = process.env.BOL_CLIENT_SECRET;
+// MODIFIED: Now fetches from settings_service
+import axios from 'axios'; // Make sure axios is imported
 
-  if (!clientId || !clientSecret) {
-    console.error('BOL_CLIENT_ID or BOL_CLIENT_SECRET environment variables are not set.');
-    throw new Error('Bol API credentials are not configured.');
+async function getBolCredentials(): Promise<{ clientId: string; clientSecret: string }> {
+  try {
+    const settingsServiceUrl = process.env.SETTINGS_SERVICE_URL || 'http://localhost:3001';
+    console.log(`Fetching Bol API credentials from settings service at ${settingsServiceUrl}...`);
+
+    // Explicitly type the expected response from settings/account
+    interface AccountDetailsResponse {
+        bolClientId: string | null;
+        bolClientSecret: string | null;
+        // other fields like id, createdAt, updatedAt might be present
+    }
+    const response = await axios.get<AccountDetailsResponse>(`${settingsServiceUrl}/settings/account`);
+
+    const { bolClientId, bolClientSecret } = response.data;
+
+    if (!bolClientId || !bolClientSecret) {
+      console.error('Fetched Bol API credentials from settings_service are incomplete or null.');
+      throw new Error('Bol API credentials from settings_service are incomplete or missing.');
+    }
+    console.log('Successfully fetched Bol API credentials.');
+    return { clientId: bolClientId, clientSecret: bolClientSecret };
+  } catch (error) {
+    console.error('Failed to fetch Bol API credentials from settings_service:', error);
+    if (axios.isAxiosError(error) && error.response) {
+        console.error('Axios error details from settings_service:', error.response.data);
+         throw new Error(`Failed to retrieve Bol API credentials. Settings service responded with status ${error.response.status}: ${error.response.data?.message || 'No additional details'}. Ensure settings_service is running and configured.`);
+    } else if (axios.isAxiosError(error) && error.request) {
+        console.error('No response received from settings_service. Is it running at the configured URL?');
+        throw new Error(`Failed to retrieve Bol API credentials. No response from settings_service. Ensure it's running and accessible. Error: ${(error as Error).message}`);
+    }
+    throw new Error(`Failed to retrieve Bol API credentials from settings_service. Error: ${(error as Error).message}`);
   }
-  return { clientId, clientSecret };
 }
 
-export async function exportAllOffersAsCsv(): Promise<string> {
+export async function exportAllOffersAsCsv(): Promise<any> { // Return type was changed to any previously
   try {
-    const { clientId, clientSecret } = getBolCredentials();
+    const { clientId, clientSecret } = await getBolCredentials(); // Now async
     const bolService = new BolService(clientId, clientSecret);
 
     console.log('Attempting to export all offers as CSV via BolService...');

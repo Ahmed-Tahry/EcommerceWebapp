@@ -1,31 +1,21 @@
 import { Router } from 'express';
-import {
-    createProductVatHandler,
-    getProductVatByIdHandler,
-    getAllProductsVatHandler,
-    updateProductVatHandler,
-    deleteProductVatHandler,
-    createAccountSettingHandler,
-    getAccountSettingByIdHandler,
-    getAllAccountSettingsHandler,
-    updateAccountSettingHandler,
-    deleteAccountSettingHandler
-} from '../controllers/settings.controller';
+import * as SettingsController from '../controllers/settings.controller';
 
 const router = Router();
 
-// --- Routes for ProductsVat CRUD ---
-router.post('/products-vat', createProductVatHandler);
-router.get('/products-vat', getAllProductsVatHandler);
-router.get('/products-vat/:productId', getProductVatByIdHandler);
-router.put('/products-vat/:productId', updateProductVatHandler);
-router.delete('/products-vat/:productId', deleteProductVatHandler);
+// Account Details routes
+router.get('/account', SettingsController.getAccountDetailsHandler);
+router.post('/account', SettingsController.saveAccountDetailsHandler); // Using POST for save/update of single resource
 
-// --- Routes for AccountSettings CRUD ---
-router.post('/account-settings', createAccountSettingHandler);
-router.get('/account-settings', getAllAccountSettingsHandler);
-router.get('/account-settings/:accountId', getAccountSettingByIdHandler);
-router.put('/account-settings/:accountId', updateAccountSettingHandler);
-router.delete('/account-settings/:accountId', deleteAccountSettingHandler);
+// VAT Settings routes
+router.post('/vat', SettingsController.createVatSettingHandler);
+router.get('/vat', SettingsController.getAllVatSettingsHandler);
+router.get('/vat/:id', SettingsController.getVatSettingByIdHandler);
+router.put('/vat/:id', SettingsController.updateVatSettingHandler);
+router.delete('/vat/:id', SettingsController.deleteVatSettingHandler);
+
+// Invoice Settings routes
+router.get('/invoice', SettingsController.getInvoiceSettingsHandler);
+router.post('/invoice', SettingsController.saveInvoiceSettingsHandler); // Using POST for save/update of single resource
 
 export default router;

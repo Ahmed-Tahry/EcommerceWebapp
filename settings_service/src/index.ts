@@ -1,4 +1,10 @@
-// Entry point for Phase 1
-import './server'; // This will import and run server.ts
+import app from './app';
+import { testDBConnection } from './utils/db'; // Optional: if you want to test DB on start
 
-console.log('Settings Service application starting (Phase 1)...');
+const PORT = process.env.SETTINGS_SERVICE_PORT || 3001; // Ensure this is different from shop_service
+
+app.listen(PORT, async () => {
+  console.log(`Settings Service is running on port ${PORT}`);
+  // Optional: Test DB connection on startup
+  // await testDBConnection();
+});

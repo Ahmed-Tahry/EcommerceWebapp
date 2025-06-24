@@ -1,20 +1,20 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "es6", // Kept es6 as per original npx tsc --init, can be updated if needed
     "module": "commonjs",
-    "rootDir": "./src",
-    "outDir": "./dist",
+    "rootDir": "src",
+    "outDir": "dist",
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
+    "strict": true, // Enabled strict mode for better type safety
+    "skipLibCheck": true, // Skip type checking of declaration files
+    "forceConsistentCasingInFileNames": true, // Enforce consistent file casing
+    "lib": ["es6", "dom"] // Added dom lib as per original npx tsc --init
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "**/*.spec.ts"]
+  "include": [
+    "src/**/*.ts" // Include all .ts files in src
+  ],
+  "exclude": [
+    "node_modules" // Exclude node_modules
+  ]
 }
