@@ -44,6 +44,37 @@ export async function createOffer(offerData: IOffer): Promise<IOffer> {
   }
 }
 
+// --- Bol.com Integration for Offer Export ---
+import BolService from './bol.service'; // Assuming bol.service.ts is in the same directory
+
+// Function to get Bol API credentials from environment variables
+function getBolCredentials(): { clientId: string; clientSecret: string } {
+  const clientId = process.env.BOL_CLIENT_ID;
+  const clientSecret = process.env.BOL_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    console.error('BOL_CLIENT_ID or BOL_CLIENT_SECRET environment variables are not set.');
+    throw new Error('Bol API credentials are not configured.');
+  }
+  return { clientId, clientSecret };
+}
+
+export async function exportAllOffersAsCsv(): Promise<string> {
+  try {
+    const { clientId, clientSecret } = getBolCredentials();
+    const bolService = new BolService(clientId, clientSecret);
+
+    console.log('Attempting to export all offers as CSV via BolService...');
+    const csvData = await bolService.exportOffers('CSV');
+    console.log('Successfully received CSV data from BolService.');
+    return csvData;
+  } catch (error) {
+    console.error('Error in exportAllOffersAsCsv (ShopService):', error);
+    // Rethrow the error to be handled by the controller or a higher-level error handler
+    throw error;
+  }
+}
+
 export async function getOfferById(offerId: string): Promise<IOffer | null> {
   const pool = getDBPool();
   const query = 'SELECT * FROM offers WHERE "offerId" = $1;';

@@ -6,6 +6,7 @@ import {
     getAllOffersHandler,
     updateOfferHandler,
     deleteOfferHandler,
+    exportOffersHandler, // Import the new handler
     // Order controllers
     createOrderHandler,
     getOrderByIdHandler,
@@ -31,6 +32,7 @@ router.get('/offers', getAllOffersHandler);
 router.get('/offers/:offerId', getOfferByIdHandler);
 router.put('/offers/:offerId', updateOfferHandler);
 router.delete('/offers/:offerId', deleteOfferHandler);
+router.get('/offers/export/csv', exportOffersHandler); // New route for CSV export
 
 // Routes for Orders CRUD
 router.post('/orders', createOrderHandler); // Create a new order
