@@ -44,6 +44,136 @@ export async function createOffer(offerData: IOffer): Promise<IOffer> {
   }
 }
 
+
+// --- Bol.com Order Synchronization ---
+
+import { BolOrder, BolOrderItem } from './bol.service'; // Import BolOrder and BolOrderItem types
+
+export async function synchronizeBolOrders(
+  status: string = 'OPEN',
+  fulfilmentMethod: 'FBR' | 'FBB' | null = null,
+  latestChangedDate: string | null = null
+): Promise<{ createdOrders: number; updatedOrders: number; createdItems: number; updatedItems: number; failedOrders: number; errors: string[] }> {
+  const { clientId, clientSecret } = getBolCredentials();
+  const bolService = new BolService(clientId, clientSecret);
+
+  let currentPage = 1;
+  let morePages = true;
+  const summary = {
+    createdOrders: 0,
+    updatedOrders: 0,
+    createdItems: 0,
+    updatedItems: 0,
+    failedOrders: 0,
+    errors: [] as string[],
+  };
+
+  console.log(`Starting Bol.com order synchronization. Params: status=${status}, fulfilmentMethod=${fulfilmentMethod}, latestChangedDate=${latestChangedDate}`);
+
+  while (morePages) {
+    try {
+      console.log(`Fetching page ${currentPage} of orders from Bol.com...`);
+      const bolOrders: BolOrder[] = await bolService.fetchOrders(currentPage, status, fulfilmentMethod, latestChangedDate);
+
+      if (bolOrders.length === 0) {
+        morePages = false;
+        console.log('No more orders found on Bol.com for the given criteria.');
+        break;
+      }
+
+      console.log(`Processing ${bolOrders.length} orders from page ${currentPage}...`);
+
+      for (const bolOrder of bolOrders) {
+        try {
+          // Map BolOrder to IOrder
+          const localOrderData: Partial<IOrder> = {
+            orderId: bolOrder.orderId,
+            orderPlacedDateTime: new Date(bolOrder.orderPlacedDateTime),
+            // orderItems will be handled separately after order creation/update
+          };
+
+          const existingOrder = await getOrderById(bolOrder.orderId);
+          let currentOrder: IOrder;
+
+          if (existingOrder) {
+            currentOrder = await updateOrder(bolOrder.orderId, localOrderData) as IOrder;
+            summary.updatedOrders++;
+            console.log(`Updated existing local order ID: ${bolOrder.orderId}`);
+          } else {
+            // Ensure all required fields for IOrder are present if creating
+            // For now, createOrder expects orderItems (even if empty array or stringified)
+            // We will create order first, then its items.
+            // The createOrder service might need adjustment if it strictly requires items upfront
+            // or we ensure localOrderData has a valid (empty) orderItems field.
+            const newOrderPayload: IOrder = {
+                orderId: bolOrder.orderId,
+                orderPlacedDateTime: new Date(bolOrder.orderPlacedDateTime),
+                orderItems: [] // Initialize with empty, items will be added/updated below
+            };
+            currentOrder = await createOrder(newOrderPayload);
+            summary.createdOrders++;
+            console.log(`Created new local order ID: ${bolOrder.orderId}`);
+          }
+
+          // Process OrderItems
+          if (bolOrder.orderItems && bolOrder.orderItems.length > 0) {
+            const localOrderItems: IOrderItem[] = [];
+            for (const bolItem of bolOrder.orderItems) {
+              const localItemData: IOrderItem = {
+                orderItemId: bolItem.orderItemId,
+                orderId: bolOrder.orderId, // Link to parent order
+                ean: bolItem.product.ean,
+                fulfilmentMethod: bolItem.fulfilment?.method || undefined,
+                fulfilmentStatus: bolItem.fulfilment?.status || undefined,
+                quantity: bolItem.quantity,
+                quantityShipped: bolItem.quantityShipped || 0,
+                quantityCancelled: bolItem.quantityCancelled || 0,
+                cancellationRequest: bolItem.cancellationRequest || false,
+                latestChangedDateTime: bolItem.fulfilment?.latestChangedDateTime
+                                        ? new Date(bolItem.fulfilment.latestChangedDateTime)
+                                        : new Date(),
+              };
+              localOrderItems.push(localItemData);
+
+              const existingItem = await getOrderItemById(bolItem.orderItemId);
+              if (existingItem) {
+                await updateOrderItem(bolItem.orderItemId, localItemData);
+                summary.updatedItems++;
+                 console.log(`Updated order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId}`);
+              } else {
+                await createOrderItem(localItemData);
+                summary.createdItems++;
+                console.log(`Created new order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId}`);
+              }
+            }
+            // After processing all items for an order, if the order was newly created,
+            // we might need to update its orderItems field if it's stored denormalized as JSONB.
+            // The current createOrder/updateOrder already handles JSON stringification of orderItems.
+            // If we've built `localOrderItems`, we can update the order with this array.
+            if (currentOrder) { // currentOrder should be defined here
+                 await updateOrder(currentOrder.orderId, { orderItems: localOrderItems });
+                 console.log(`Updated order ${currentOrder.orderId} with its processed items.`);
+            }
+          }
+        } catch (orderProcessingError) {
+          console.error(`Error processing Bol order ID ${bolOrder.orderId}:`, orderProcessingError);
+          summary.failedOrders++;
+          summary.errors.push(`Failed to process order ${bolOrder.orderId}: ${(orderProcessingError as Error).message}`);
+        }
+      }
+      currentPage++;
+    } catch (fetchError) {
+      console.error(`Error fetching orders from Bol.com (page ${currentPage}):`, fetchError);
+      summary.failedOrders++; // Consider how to count this; maybe a separate counter for fetch failures
+      summary.errors.push(`Failed to fetch orders page ${currentPage}: ${(fetchError as Error).message}`);
+      morePages = false; // Stop pagination on fetch error
+    }
+  }
+
+  console.log('Order synchronization finished.', summary);
+  return summary;
+}
+
 // --- Bol.com Integration for Offer Export ---
 import BolService from './bol.service'; // Assuming bol.service.ts is in the same directory
 import { parse } from 'csv-parse';

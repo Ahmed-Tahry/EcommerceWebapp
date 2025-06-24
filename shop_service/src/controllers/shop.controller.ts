@@ -18,6 +18,54 @@ export const getShopInfo = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
+// Handler for synchronizing orders from Bol.com
+export const syncBolOrdersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    // Extract optional filter parameters from request query or body
+    // For simplicity, using query params here.
+    const status = req.query.status as string || 'OPEN'; // Default to OPEN orders
+    const fulfilmentMethod = req.query.fulfilmentMethod as ('FBR' | 'FBB' | undefined) || undefined;
+    const latestChangedDate = req.query.latestChangedDate as string || undefined; // Expects YYYY-MM-DD
+
+    console.log(`syncBolOrdersHandler: Initiating Bol.com order synchronization with params: status=${status}, fulfilmentMethod=${fulfilmentMethod}, latestChangedDate=${latestChangedDate}`);
+
+    const result = await ShopService.synchronizeBolOrders(status, fulfilmentMethod, latestChangedDate);
+
+    console.log('syncBolOrdersHandler: Synchronization complete. Sending JSON response.');
+    // Determine overall status based on results
+    if (result.failedOrders > 0 || result.errors.length > 0) {
+      res.status(207).json({ // Multi-Status: some operations may have succeeded
+        message: 'Order synchronization completed with some errors.',
+        createdOrders: result.createdOrders,
+        updatedOrders: result.updatedOrders,
+        createdItems: result.createdItems,
+        updatedItems: result.updatedItems,
+        failedOrders: result.failedOrders,
+        errors: result.errors,
+      });
+    } else {
+      res.status(200).json({
+        message: 'Order synchronization completed successfully.',
+        createdOrders: result.createdOrders,
+        updatedOrders: result.updatedOrders,
+        createdItems: result.createdItems,
+        updatedItems: result.updatedItems,
+      });
+    }
+  } catch (error) {
+    console.error('syncBolOrdersHandler: Error during order synchronization:', error);
+    if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
+      res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
+      return;
+    }
+    if (error instanceof Error && error.message.includes('Bol API Error')) {
+      res.status(502).json({ message: 'Failed to retrieve data from Bol.com API.', details: error.message });
+      return;
+    }
+    next(error); // Pass to generic error handler
+  }
+};
+
 // Handler for exporting offers as CSV
 export const exportOffersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {

@@ -6,13 +6,14 @@ import {
     getAllOffersHandler,
     updateOfferHandler,
     deleteOfferHandler,
-    exportOffersHandler, // Import the new handler
+    exportOffersHandler,
     // Order controllers
     createOrderHandler,
     getOrderByIdHandler,
     getAllOrdersHandler,
     updateOrderHandler,
     deleteOrderHandler,
+    syncBolOrdersHandler, // Import the new order sync handler
     // OrderItem controllers
     createOrderItemHandler,
     getOrderItemByIdHandler,
@@ -40,6 +41,7 @@ router.get('/orders', getAllOrdersHandler); // Get all orders
 router.get('/orders/:orderId', getOrderByIdHandler); // Get a specific order by ID
 router.put('/orders/:orderId', updateOrderHandler);
 router.delete('/orders/:orderId', deleteOrderHandler);
+router.post('/orders/sync/bol', syncBolOrdersHandler); // New route for Bol order sync
 
 // Routes for OrderItems CRUD
 // Create a new order item (could also be POST /api/shop/orders/:orderId/items)

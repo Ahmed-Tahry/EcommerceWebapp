@@ -21,6 +21,42 @@ interface OfferExportRequest {
   format: 'CSV' | 'XML'; // Add other formats if needed
 }
 
+// Define the structure for Bol API Order (simplified for fetching)
+// This should be expanded based on the actual API response structure from Bol.
+// For now, this is a placeholder.
+export interface BolOrder {
+  orderId: string;
+  orderPlacedDateTime: string;
+  orderItems: BolOrderItem[];
+  // Add other relevant fields from Bol API order list response
+  fulfilmentMethod?: string; // Example: 'FBR' or 'FBB'
+  // Potentially customer details, shipment details etc. that we might ignore for now
+}
+
+export interface BolOrderItem {
+  orderItemId: string;
+  product: {
+    ean: string;
+    title?: string; // Optional, as we decided not to map it for now
+  };
+  offer?: { // Offer details might be nested
+    offerId?: string; // Optional
+    reference?: string; // Optional
+  };
+  quantity: number;
+  quantityShipped?: number;
+  quantityCancelled?: number;
+  unitPrice?: number; // Optional, as we decided not to map it for now
+  commission?: number; // Optional, as we decided not to map it for now
+  fulfilment?: { // Fulfilment details might be nested
+    method?: string; // e.g. FBR, FBB
+    status?: string; // e.g. OPEN, SHIPPED
+    latestChangedDateTime?: string;
+  };
+  cancellationRequest?: boolean;
+  // Add other relevant fields from Bol API
+}
+
 // Define the structure for the Bol API error
 interface BolApiError {
   type: string;
@@ -182,6 +218,49 @@ class BolService {
 
     } catch (error) {
       this.handleApiError(error as AxiosError<BolApiError>, 'exportOffers');
+    }
+  }
+
+  public async fetchOrders(
+    page: number = 1,
+    status: string = 'OPEN', // e.g., OPEN, SHIPPED, ALL
+    fulfilmentMethod: 'FBR' | 'FBB' | null = null, // Fulfilment by Retailer or Bol
+    latestChangedDate: string | null = null // YYYY-MM-DD format
+  ): Promise<BolOrder[]> {
+    try {
+      const params: Record<string, any> = {
+        page,
+        status,
+      };
+      if (fulfilmentMethod) {
+        params['fulfilment-method'] = fulfilmentMethod;
+      }
+      if (latestChangedDate) {
+        // Ensure the API expects this format, adjust if necessary
+        params['latest-change-date'] = latestChangedDate;
+      }
+
+      console.log(`Fetching orders from Bol.com API with params: ${JSON.stringify(params)}`);
+      // The actual API response for orders might be { orders: BolOrder[] }
+      // Adjust based on the real structure. Assuming it's directly an array for now, or a root object with an 'orders' key.
+      const response = await this.apiClient.get<{ orders: BolOrder[] }>('/orders', { params });
+
+      // If the response is structured like { orders: [...] }, then return response.data.orders
+      // If the response is directly an array, then return response.data
+      // Based on typical Bol API patterns, it's likely nested.
+      if (response.data && Array.isArray(response.data.orders)) {
+        console.log(`Fetched ${response.data.orders.length} orders for page ${page}.`);
+        return response.data.orders;
+      } else {
+        // This case might indicate an unexpected response structure or an empty page that's not an error
+        // but might be structured differently (e.g. just an empty array without the 'orders' key if it's the last page and empty)
+        console.log(`No 'orders' array found in response for page ${page}, or response structure differs. Data:`, response.data);
+        return []; // Return empty array if no orders found or structure is unexpected but not an error
+      }
+
+    } catch (error) {
+      this.handleApiError(error as AxiosError<BolApiError>, `fetchOrders (page: ${page}, status: ${status})`);
+      return []; // Return empty array on error to allow graceful handling, or rethrow if preferred
     }
   }
 }
