@@ -21,25 +21,37 @@ export const getShopInfo = async (req: Request, res: Response, next: NextFunctio
 // Handler for exporting offers as CSV
 export const exportOffersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    console.log('exportOffersHandler: Initiating CSV export...');
-    const csvData = await ShopService.exportAllOffersAsCsv();
+    console.log('exportOffersHandler: Initiating CSV export and database save...');
+    const result = await ShopService.exportAllOffersAsCsv();
 
-    // Set headers for CSV download
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="offers.csv"');
-
-    console.log('exportOffersHandler: Sending CSV data as response.');
-    res.status(200).send(csvData);
+    // Send JSON response indicating success/failure of the combined operation
+    console.log('exportOffersHandler: Sending JSON response.');
+    if (result.errorCount && result.errorCount > 0) {
+        // If there were errors during the DB save part, it might be a partial success
+        res.status(207).json({ // Multi-Status
+            message: result.message,
+            successCount: result.successCount,
+            errorCount: result.errorCount,
+            errors: result.details
+        });
+    } else {
+        res.status(200).json({
+            message: result.message,
+            successCount: result.successCount
+        });
+    }
   } catch (error) {
-    // Log the error and pass it to the central error handling middleware
-    console.error('exportOffersHandler: Error during CSV export:', error);
+    console.error('exportOffersHandler: Error during CSV export and save:', error);
     if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
       res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
       return;
     }
     if (error instanceof Error && error.message.includes('Bol API Error')) {
-      // Potentially parse more specific details if needed, or send a generic message
       res.status(502).json({ message: 'Failed to retrieve data from Bol.com API.', details: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message.includes('Failed to parse CSV data')) {
+      res.status(400).json({ message: 'Error processing offer data.', details: error.message });
       return;
     }
     // For other errors, use the generic error handler

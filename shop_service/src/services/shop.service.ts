@@ -46,6 +46,8 @@ export async function createOffer(offerData: IOffer): Promise<IOffer> {
 
 // --- Bol.com Integration for Offer Export ---
 import BolService from './bol.service'; // Assuming bol.service.ts is in the same directory
+import { parse } from 'csv-parse';
+import { IOffer } from '../models/shop.model'; // Ensure IOffer is imported
 
 // Function to get Bol API credentials from environment variables
 function getBolCredentials(): { clientId: string; clientSecret: string } {
@@ -66,13 +68,158 @@ export async function exportAllOffersAsCsv(): Promise<string> {
 
     console.log('Attempting to export all offers as CSV via BolService...');
     const csvData = await bolService.exportOffers('CSV');
-    console.log('Successfully received CSV data from BolService.');
-    return csvData;
+    console.log('Successfully received CSV data from BolService. Parsing and saving offers...');
+
+    const importResult = await _parseAndSaveOffersFromCsv(csvData);
+    console.log(`CSV processing complete. Success: ${importResult.successCount}, Errors: ${importResult.errorCount}`);
+
+    if (importResult.errorCount > 0) {
+      // Decide if partial success is acceptable or if this should be an overall failure
+      // For now, log errors and return a message including the outcome.
+      const errorMessage = `Offer import completed with ${importResult.errorCount} errors. ${importResult.successCount} offers saved. Errors: ${importResult.errors.join('; ')}`;
+      // console.error(errorMessage); // Already logged in _parseAndSaveOffersFromCsv
+      // Depending on desired behavior, you might throw an error here if errorCount > 0
+      // throw new Error(errorMessage);
+      return {
+        message: `Offer import completed with some errors. Saved: ${importResult.successCount}, Failed: ${importResult.errorCount}.`,
+        details: importResult.errors,
+        successCount: importResult.successCount,
+        errorCount: importResult.errorCount
+      };
+    }
+
+    return {
+        message: `Successfully exported and saved ${importResult.successCount} offers from Bol.com.`,
+        successCount: importResult.successCount,
+        errorCount: importResult.errorCount
+    };
+
   } catch (error) {
     console.error('Error in exportAllOffersAsCsv (ShopService):', error);
     // Rethrow the error to be handled by the controller or a higher-level error handler
-    throw error;
+    // Ensure the error is an instance of Error for consistent handling upstream
+    if (error instanceof Error) {
+        throw error;
+    }
+    throw new Error(String(error));
   }
+}
+
+// Helper to normalize CSV header names to IOffer field names
+// Handles potential spaces and case insensitivity for common CSV header variations.
+function normalizeHeader(header: string): keyof IOffer | null {
+  const normalized = header.toLowerCase().replace(/\s+/g, '');
+  switch (normalized) {
+    case 'offerid': return 'offerId';
+    case 'ean': return 'ean';
+    case 'conditionname': return 'conditionName';
+    case 'conditioncategory': return 'conditionCategory';
+    case 'conditioncomment': return 'conditionComment';
+    case 'bundlepricesprice': return 'bundlePricesPrice';
+    case 'fulfilmentdeliverycode': return 'fulfilmentDeliveryCode';
+    case 'stockamount': return 'stockAmount';
+    case 'onholdbyretailer': return 'onHoldByRetailer';
+    case 'fulfilmenttype': return 'fulfilmentType';
+    case 'mutationdatetime': return 'mutationDateTime';
+    case 'referencecode': return 'referenceCode';
+    case 'correctedstock': return 'correctedStock';
+    default:
+      console.warn(`Unrecognized CSV header: ${header}`);
+      return null; // Or throw an error if strict mapping is required
+  }
+}
+
+
+async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCount: number; errorCount: number; errors: string[] }> {
+  return new Promise((resolve, reject) => {
+    parse(csvData, {
+      columns: header => {
+        const normalizedHeaders = header.map(normalizeHeader);
+        // Log if any original headers were dropped due to normalization returning null
+        header.forEach((h, i) => {
+            if (!normalizedHeaders[i]) console.warn(`Header "${h}" was not mapped and will be ignored.`);
+        });
+        return normalizedHeaders.filter(Boolean) as (keyof IOffer)[]; // Filter out nulls and cast
+      },
+      skip_empty_lines: true,
+      trim: true,
+      cast: (value, context) => {
+        // Ensure context.column is a valid keyof IOffer (it should be due to columns mapping)
+        const column = context.column as keyof IOffer;
+        if (!column) return value; // Should not happen if columns are filtered
+
+        if (column === 'bundlePricesPrice' || column === 'stockAmount' || column === 'correctedStock') {
+          return value === '' || value === null || value === undefined ? null : Number(value);
+        }
+        if (column === 'onHoldByRetailer') {
+          if (typeof value === 'string') {
+            return value.toLowerCase() === 'true' || value === '1';
+          }
+          return Boolean(value); // Fallback for non-string values
+        }
+        if (column === 'mutationDateTime') {
+          return value === '' || value === null || value === undefined ? null : new Date(value);
+        }
+        return value;
+      },
+    }, async (err, records: Partial<IOffer>[]) => {
+      if (err) {
+        console.error('Error parsing CSV:', err);
+        return reject(new Error(`Failed to parse CSV data: ${err.message}`));
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+      const errors: string[] = [];
+
+      console.log(`Parsed ${records.length} records from CSV. Attempting to save to database...`);
+
+      for (const record of records) {
+        // Basic validation: offerId and ean are required
+        if (!record.offerId || !record.ean) {
+          errors.push(`Skipping record due to missing offerId or ean: ${JSON.stringify(record)}`);
+          errorCount++;
+          continue;
+        }
+
+        try {
+          // Attempt to update if offer exists, otherwise create new
+          const existingOffer = await getOfferById(record.offerId);
+          const offerPayload: IOffer = {
+            offerId: record.offerId,
+            ean: record.ean,
+            conditionName: record.conditionName !== undefined ? record.conditionName : (existingOffer?.conditionName || null),
+            conditionCategory: record.conditionCategory !== undefined ? record.conditionCategory : (existingOffer?.conditionCategory || null),
+            conditionComment: record.conditionComment !== undefined ? record.conditionComment : (existingOffer?.conditionComment || null),
+            bundlePricesPrice: record.bundlePricesPrice !== undefined ? record.bundlePricesPrice : (existingOffer?.bundlePricesPrice || null),
+            fulfilmentDeliveryCode: record.fulfilmentDeliveryCode !== undefined ? record.fulfilmentDeliveryCode : (existingOffer?.fulfilmentDeliveryCode || null),
+            stockAmount: record.stockAmount !== undefined ? record.stockAmount : (existingOffer?.stockAmount || null),
+            onHoldByRetailer: record.onHoldByRetailer !== undefined ? record.onHoldByRetailer : (existingOffer?.onHoldByRetailer || false),
+            fulfilmentType: record.fulfilmentType !== undefined ? record.fulfilmentType : (existingOffer?.fulfilmentType || null),
+            mutationDateTime: record.mutationDateTime !== undefined ? record.mutationDateTime : (existingOffer?.mutationDateTime || new Date()),
+            referenceCode: record.referenceCode !== undefined ? record.referenceCode : (existingOffer?.referenceCode || null),
+            correctedStock: record.correctedStock !== undefined ? record.correctedStock : (existingOffer?.correctedStock || null),
+          };
+
+
+          if (existingOffer) {
+            await updateOffer(record.offerId, offerPayload);
+            console.log(`Updated offer with ID: ${record.offerId}`);
+          } else {
+            await createOffer(offerPayload);
+            console.log(`Created new offer with ID: ${record.offerId}`);
+          }
+          successCount++;
+        } catch (dbError) {
+          console.error(`Error saving offer with ID ${record.offerId}:`, dbError);
+          errors.push(`Failed to save offer ${record.offerId}: ${(dbError as Error).message}`);
+          errorCount++;
+        }
+      }
+      console.log(`Finished processing CSV records. Success: ${successCount}, Failed: ${errorCount}`);
+      resolve({ successCount, errorCount, errors });
+    });
+  });
 }
 
 export async function getOfferById(offerId: string): Promise<IOffer | null> {
