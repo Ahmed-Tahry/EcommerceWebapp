@@ -1,10 +1,9 @@
-import axios from 'axios';
+
 // Manually define types if direct import fails, or ensure @types/axios is compatible
 // This usually means there's an issue with how types are resolved or module settings.
 // For now, let's assume the named imports should work and the issue might be elsewhere or version conflict.
 // If these still fail, the types might be accessible via axios.default.AxiosInstance etc. or need manual definition.
-import type { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
-
+import axios, { type AxiosInstance, type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 
 // Define the structure for the process status response
 // Exporting it so it can be imported by other services if needed (e.g. shop.service.ts)
@@ -157,28 +156,26 @@ class BolService {
     this.clientSecret = clientSecret;
 
     this.apiClient = axios.create({
-      baseURL: 'https://api.bol.com/retailer', // Main Retailer API
+      baseURL: 'https://api.bol.com/retailer-demo', // Main Retailer API
       headers: {
         'Accept': 'application/vnd.retailer.v10+json', // Default for v10
         'Content-Type': 'application/vnd.retailer.v10+json',
       },
     });
 
-    this.apiClient.interceptors.request.use(
-      async (config: AxiosRequestConfig): Promise<AxiosRequestConfig> => {
-        if (!config.headers) { // Ensure headers object exists
-            config.headers = {};
-        }
-        if (!this.isTokenValid()) {
-          await this.authenticate();
-        }
-        if (this.accessToken) {
-          config.headers.Authorization = `Bearer ${this.accessToken}`;
-        }
-        return config;
-      },
-      (error: any) => Promise.reject(error) // Or AxiosError if preferred and fits all cases
-    );
+this.apiClient.interceptors.request.use(
+  async (config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> => {
+    config.headers = config.headers ?? {};
+    if (!this.isTokenValid()) {
+      await this.authenticate();
+    }
+    if (this.accessToken) {
+      config.headers.Authorization = `Bearer ${this.accessToken}`;
+    }
+    return config;
+  },
+  (error: any) => Promise.reject(error)
+);
   }
 
   private async authenticate(): Promise<void> {

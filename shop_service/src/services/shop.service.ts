@@ -382,21 +382,24 @@ export async function synchronizeBolOrders(
 }
 
 // --- Bol.com Integration for Offer Export ---
-import { parse } from 'csv-parse';
-import type { CastingContext, Options as CsvParseOptions } from 'csv-parse';
+import { parse, CsvError } from 'csv-parse';
+import type { Options as CsvParseOptions } from 'csv-parse';
 import axios from 'axios';
 import type { AxiosError } from 'axios';
 
+interface ParseContext {
+  column: string | number | undefined;
+}
 // Function to get Bol API credentials (already modified to be async and use settings_service)
 async function getBolCredentials(): Promise<{ clientId: string; clientSecret: string }> {
   try {
-    const settingsServiceNginxUrl = process.env.SETTINGS_SERVICE_NGINX_URL || 'http://localhost/api/settings';
+    const settingsServiceNginxUrl = process.env.SETTINGS_SERVICE_NGINX_URL || 'http://nginx:80/api/settings/settings';
     const accountUrl = `${settingsServiceNginxUrl}/account`;
 
     console.log(`Fetching Bol API credentials for current user from settings service via Nginx at ${accountUrl}...`);
 
     const response = await axios.get(accountUrl);
-
+    console.log("reponse" , response)
     interface AccountDetailsResponse {
         bolClientId: string | null;
         bolClientSecret: string | null;
@@ -493,23 +496,25 @@ function normalizeHeader(header: string): keyof IOffer | null {
 }
 
 
+interface ParseContext {
+  column: string | number | undefined;
+}
+
 async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCount: number; errorCount: number; errors: string[] }> {
   return new Promise((resolve, reject) => {
     parse(csvData, {
-      columns: header => {
+      columns: (header: string[]): (keyof IOffer | null)[] => {
         const normalizedHeaders = header.map(normalizeHeader);
-        // Log if any original headers were dropped due to normalization returning null
-        header.forEach((h, i) => {
-            if (!normalizedHeaders[i]) console.warn(`Header "${h}" was not mapped and will be ignored.`);
+        header.forEach((h: string, i: number) => {
+          if (!normalizedHeaders[i]) console.warn(`Header "${h}" was not mapped and will be ignored.`);
         });
-        return normalizedHeaders.filter(Boolean) as (keyof IOffer)[]; // Filter out nulls and cast
+        return normalizedHeaders.filter(Boolean) as (keyof IOffer)[];
       },
       skip_empty_lines: true,
       trim: true,
-      cast: (value, context) => {
-        // Ensure context.column is a valid keyof IOffer (it should be due to columns mapping)
-        const column = context.column as keyof IOffer;
-        if (!column) return value; // Should not happen if columns are filtered
+      cast: (value: string, context: ParseContext) => {
+        const column = context.column as keyof IOffer | undefined;
+        if (!column) return value;
 
         if (column === 'bundlePricesPrice' || column === 'stockAmount' || column === 'correctedStock') {
           return value === '' || value === null || value === undefined ? null : Number(value);
@@ -518,73 +523,76 @@ async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCou
           if (typeof value === 'string') {
             return value.toLowerCase() === 'true' || value === '1';
           }
-          return Boolean(value); // Fallback for non-string values
+          return Boolean(value);
         }
         if (column === 'mutationDateTime') {
           return value === '' || value === null || value === undefined ? null : new Date(value);
         }
         return value;
       },
-    }, async (err, records: Partial<IOffer>[]) => {
+    }, (err: CsvError | undefined, records: Partial<IOffer>[] | undefined) => {
       if (err) {
         console.error('Error parsing CSV:', err);
         return reject(new Error(`Failed to parse CSV data: ${err.message}`));
       }
-
-      let successCount = 0;
-      let errorCount = 0;
-      const errors: string[] = [];
-
-      console.log(`Parsed ${records.length} records from CSV. Attempting to save to database...`);
-
-      for (const record of records) {
-        // Basic validation: offerId and ean are required
-        if (!record.offerId || !record.ean) {
-          errors.push(`Skipping record due to missing offerId or ean: ${JSON.stringify(record)}`);
-          errorCount++;
-          continue;
-        }
-
-        try {
-          // Attempt to update if offer exists, otherwise create new
-          const existingOffer = await getOfferById(record.offerId);
-          const offerPayload: IOffer = {
-            offerId: record.offerId,
-            ean: record.ean,
-            conditionName: record.conditionName !== undefined ? record.conditionName : (existingOffer?.conditionName || null),
-            conditionCategory: record.conditionCategory !== undefined ? record.conditionCategory : (existingOffer?.conditionCategory || null),
-            conditionComment: record.conditionComment !== undefined ? record.conditionComment : (existingOffer?.conditionComment || null),
-            bundlePricesPrice: record.bundlePricesPrice !== undefined ? record.bundlePricesPrice : (existingOffer?.bundlePricesPrice || null),
-            fulfilmentDeliveryCode: record.fulfilmentDeliveryCode !== undefined ? record.fulfilmentDeliveryCode : (existingOffer?.fulfilmentDeliveryCode || null),
-            stockAmount: record.stockAmount !== undefined ? record.stockAmount : (existingOffer?.stockAmount || null),
-            onHoldByRetailer: record.onHoldByRetailer !== undefined ? record.onHoldByRetailer : (existingOffer?.onHoldByRetailer || false),
-            fulfilmentType: record.fulfilmentType !== undefined ? record.fulfilmentType : (existingOffer?.fulfilmentType || null),
-            mutationDateTime: record.mutationDateTime !== undefined ? record.mutationDateTime : (existingOffer?.mutationDateTime || new Date()),
-            referenceCode: record.referenceCode !== undefined ? record.referenceCode : (existingOffer?.referenceCode || null),
-            correctedStock: record.correctedStock !== undefined ? record.correctedStock : (existingOffer?.correctedStock || null),
-          };
-
-
-          if (existingOffer) {
-            await updateOffer(record.offerId, offerPayload);
-            console.log(`Updated offer with ID: ${record.offerId}`);
-          } else {
-            await createOffer(offerPayload);
-            console.log(`Created new offer with ID: ${record.offerId}`);
-          }
-          successCount++;
-        } catch (dbError) {
-          console.error(`Error saving offer with ID ${record.offerId}:`, dbError);
-          errors.push(`Failed to save offer ${record.offerId}: ${(dbError as Error).message}`);
-          errorCount++;
-        }
+      if (!records) {
+        console.error('No records returned from CSV parsing');
+        return reject(new Error('No records returned from CSV parsing'));
       }
-      console.log(`Finished processing CSV records. Success: ${successCount}, Failed: ${errorCount}`);
-      resolve({ successCount, errorCount, errors });
+
+      // Process records asynchronously
+      (async () => {
+        let successCount = 0;
+        let errorCount = 0;
+        const errors: string[] = [];
+
+        console.log(`Parsed ${records.length} records from CSV. Attempting to save to database...`);
+
+        for (const record of records) {
+          if (!record.offerId || !record.ean) {
+            errors.push(`Skipping record due to missing offerId or ean: ${JSON.stringify(record)}`);
+            errorCount++;
+            continue;
+          }
+
+          try {
+            const existingOffer = await getOfferById(record.offerId);
+            const offerPayload: IOffer = {
+              offerId: record.offerId,
+              ean: record.ean,
+              conditionName: record.conditionName !== undefined ? record.conditionName : (existingOffer?.conditionName || null),
+              conditionCategory: record.conditionCategory !== undefined ? record.conditionCategory : (existingOffer?.conditionCategory || null),
+              conditionComment: record.conditionComment !== undefined ? record.conditionComment : (existingOffer?.conditionComment || null),
+              bundlePricesPrice: record.bundlePricesPrice !== undefined ? record.bundlePricesPrice : (existingOffer?.bundlePricesPrice || null),
+              fulfilmentDeliveryCode: record.fulfilmentDeliveryCode !== undefined ? record.fulfilmentDeliveryCode : (existingOffer?.fulfilmentDeliveryCode || null),
+              stockAmount: record.stockAmount !== undefined ? record.stockAmount : (existingOffer?.stockAmount || null),
+              onHoldByRetailer: record.onHoldByRetailer !== undefined ? record.onHoldByRetailer : (existingOffer?.onHoldByRetailer || false),
+              fulfilmentType: record.fulfilmentType !== undefined ? record.fulfilmentType : (existingOffer?.fulfilmentType || null),
+              mutationDateTime: record.mutationDateTime !== undefined ? record.mutationDateTime : (existingOffer?.mutationDateTime || new Date()),
+              referenceCode: record.referenceCode !== undefined ? record.referenceCode : (existingOffer?.referenceCode || null),
+              correctedStock: record.correctedStock !== undefined ? record.correctedStock : (existingOffer?.correctedStock || null),
+            };
+
+            if (existingOffer) {
+              await updateOffer(record.offerId, offerPayload);
+              console.log(`Updated offer with ID: ${record.offerId}`);
+            } else {
+              await createOffer(offerPayload);
+              console.log(`Created new offer with ID: ${record.offerId}`);
+            }
+            successCount++;
+          } catch (dbError) {
+            console.error(`Error saving offer with ID ${record.offerId}:`, dbError);
+            errors.push(`Failed to save offer ${record.offerId}: ${(dbError as Error).message}`);
+            errorCount++;
+          }
+        }
+        console.log(`Finished processing CSV records. Success: ${successCount}, Failed: ${errorCount}`);
+        resolve({ successCount, errorCount, errors });
+      })();
     });
   });
 }
-
 export async function getOfferById(offerId: string): Promise<IOffer | null> {
   const pool = getDBPool();
   const query = 'SELECT * FROM offers WHERE "offerId" = $1;';

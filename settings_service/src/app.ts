@@ -15,6 +15,7 @@ app.use('/settings', settingsRoutes); // Mount settings routes under /settings p
 
 // Basic Root Route
 app.get('/', (req: Request, res: Response) => {
+  console.log("here")
   res.send('Settings Service is running!');
 });
 

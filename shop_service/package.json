@@ -2,10 +2,10 @@
   "name": "shop_service",
   "version": "1.0.0",
   "description": "Shop service for the e-commerce platform",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node dist/index.js",
-    "dev": "nodemon src/index.ts",
+    "start": "node dist/server.js",
+    "dev": "nodemon src/server.ts",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,12 +21,12 @@
   "license": "ISC",
   "dependencies": {
     "axios": "^1.10.0",
+    "csv-parse": "^5.5.6",
     "express": "^4.18.2",
     "pg": "^8.11.3"
   },
   "devDependencies": {
-    "@types/axios": "^0.9.36",
-    "@types/csv-parse": "^1.1.12",
+    "@types/csv-parse": "^1.2.2",
     "@types/express": "^4.17.17",
     "@types/node": "^20.4.8",
     "@types/pg": "^8.10.7",

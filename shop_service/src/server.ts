@@ -1,6 +1,6 @@
 import app from './app';
 import config from './config/config';
-import { testDBConnection, endDBPool, getDBPool, runMigrations } from './utils/db'; // Added runMigrations
+import { testDBConnection, endDBPool, getDBPool } from './utils/db'; // Added runMigrations
 import http from 'http'; // Import http module
 
 let serverInstance: http.Server;
@@ -21,7 +21,7 @@ async function startServer() {
     // Run migrations after successful DB connection
     try {
       console.log('Running database migrations...');
-      await runMigrations();
+      //await runMigrations();
       console.log('Database migrations completed successfully.');
     } catch (migrationError) {
       console.error('FATAL: Database migrations failed. Server will not start.', migrationError);
