@@ -47,7 +47,8 @@ export async function createOffer(offerData: IOffer): Promise<IOffer> {
 // --- Product Model CRUD ---
 // Assuming IProduct is defined in ../models/shop.model.ts
 import { IProduct } from '../models/shop.model';
-import BolService, { BolProductContent, BolCreateProductContentPayload, BolCreateProductAttribute, ProcessStatus, BolProductAttribute } from './bol.service';
+// Import ProcessStatus correctly, and other types from bol.service
+import BolService, { BolProductContent, BolCreateProductContentPayload, BolCreateProductAttribute, BolProductAttribute, ProcessStatus } from './bol.service';
 
 
 export async function createProduct(productData: IProduct): Promise<IProduct> {
@@ -154,15 +155,15 @@ function mapBolProductContentToLocal(bolContent: BolProductContent): Partial<IPr
 
     switch (attr.id.toLowerCase()) { // Normalize common Bol attribute IDs
       case 'title':
-      case 'titel': // Dutch for title
+      case 'titel':
         localProduct.title = String(value);
         break;
       case 'description':
-      case 'beschrijving': // Dutch for description
+      case 'beschrijving':
         localProduct.description = String(value);
         break;
       case 'brand':
-      case 'merk': // Dutch for brand
+      case 'merk':
         localProduct.brand = String(value);
         break;
       default:
@@ -171,7 +172,6 @@ function mapBolProductContentToLocal(bolContent: BolProductContent): Partial<IPr
   });
   localProduct.attributes = otherAttributes;
 
-  // Simplified main image URL mapping
   const primaryAsset = bolContent.assets.find(
     asset => asset.type === 'IMAGE_HEADER' || asset.variants.some(v => v.usage === 'PRIMARY')
   );
@@ -185,8 +185,8 @@ function mapBolProductContentToLocal(bolContent: BolProductContent): Partial<IPr
 }
 
 export async function getBolProductContent(ean: string, language: string = 'nl'): Promise<Partial<IProduct> | null> {
-  const { clientId, clientSecret } = getBolCredentials();
-  const bolService = new BolService(clientId, clientSecret);
+  const credentials = await getBolCredentials(); // Await the promise
+  const bolService = new BolService(credentials.clientId, credentials.clientSecret);
   const bolContent = await bolService.fetchProductContent(ean, language);
   if (!bolContent) {
     console.log(`No Bol.com content found for EAN ${ean}, language ${language}.`);
@@ -200,20 +200,13 @@ export async function updateLocalProductFromBol(ean: string, language: string = 
   if (!mappedProductData) {
     throw new Error(`Could not fetch or map product content from Bol.com for EAN ${ean}.`);
   }
-
-  const updatePayload: Partial<IProduct> = {
-    ...mappedProductData,
-    lastSyncFromBol: new Date(),
-  };
-
-  // Use createProduct which handles upsert logic based on EAN
-  return createProduct(updatePayload as IProduct); // Cast as IProduct assuming EAN is always present
+  const updatePayload: Partial<IProduct> = { ...mappedProductData, lastSyncFromBol: new Date() };
+  return createProduct(updatePayload as IProduct);
 }
 
 export async function pushLocalProductToBol(ean: string, language: string = 'nl'): Promise<{ processId: string | null; message: string; error?: any }> {
-  const { clientId, clientSecret } = getBolCredentials();
-  const bolService = new BolService(clientId, clientSecret);
-
+  const credentials = await getBolCredentials(); // Await the promise
+  const bolService = new BolService(credentials.clientId, credentials.clientSecret);
   const localProduct = await getProductByEan(ean);
   if (!localProduct) {
     return { processId: null, message: `Product with EAN ${ean} not found locally.`, error: 'Local product not found' };
@@ -226,49 +219,32 @@ export async function pushLocalProductToBol(ean: string, language: string = 'nl'
 
   if (localProduct.attributes) {
     for (const key in localProduct.attributes) {
-      // Avoid re-adding title, desc, brand if they are also in the generic attributes map
       if (!['title', 'description', 'brand'].includes(key.toLowerCase())) {
          attributes.push({ id: key, values: [{ value: localProduct.attributes[key] }] });
       }
     }
   }
-
-  // Asset update is simplified/omitted for now as per previous decisions.
-  // If mainImageUrl were to be sent, Bol's API for asset creation/linking would be needed.
-  const payload: BolCreateProductContentPayload = {
-    language,
-    data: { ean, attributes },
-  };
+  const payload: BolCreateProductContentPayload = { language, data: { ean, attributes } };
 
   try {
     const processStatus = await bolService.upsertProductContent(payload);
-    // After initiating, update local product's lastSyncToBol timestamp
-    // This is optimistic; actual success depends on polling processStatus.
-    // For simplicity now, we update immediately. A more robust solution would update after polling confirms success.
     await updateProduct(ean, { lastSyncToBol: new Date() });
-
     return { processId: processStatus.processStatusId, message: `Product content update initiated for EAN ${ean}. Poll process ID for status.` };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error pushing product EAN ${ean} to Bol:`, error);
-    return { processId: null, message: `Failed to initiate product content update for EAN ${ean}.`, error: (error as Error).message };
+    return { processId: null, message: `Failed to initiate product content update for EAN ${ean}.`, error: (error instanceof Error ? error.message : String(error)) };
   }
 }
 
-
-// Polling function for any ProcessStatus (can be reused)
-// Note: This is a simplified polling. In a real app, this might be a background job.
 export async function pollBolProcessStatus(processId: string, maxAttempts = 20, pollInterval = 5000): Promise<ProcessStatus> {
-    const { clientId, clientSecret } = getBolCredentials();
-    const bolService = new BolService(clientId, clientSecret);
+    const credentials = await getBolCredentials(); // Await the promise
+    const bolService = new BolService(credentials.clientId, credentials.clientSecret);
     let attempts = 0;
-
     while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval)); // Delay
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
         attempts++;
         console.log(`Polling process status for ID ${processId}, attempt ${attempts}`);
-
         const currentStatus = await bolService.getProcessStatus(processId);
-
         if (currentStatus.status === 'SUCCESS' || currentStatus.status === 'FAILURE' || currentStatus.status === 'TIMEOUT') {
             console.log(`Process ID ${processId} finished with status: ${currentStatus.status}`);
             return currentStatus;
@@ -278,22 +254,16 @@ export async function pollBolProcessStatus(processId: string, maxAttempts = 20, 
     throw new Error(`Process ID ${processId} timed out after ${maxAttempts} polling attempts.`);
 }
 
-
 // --- Bol.com Order Synchronization ---
-
-import { BolOrder, BolOrderItem } from './bol.service'; // Import BolOrder and BolOrderItem types
+import { BolOrder, BolOrderItem } from './bol.service';
 
 export async function synchronizeBolOrders(
   status: string = 'OPEN',
   fulfilmentMethod: 'FBR' | 'FBB' | null = null,
   latestChangedDate: string | null = null
 ): Promise<{ createdOrders: number; updatedOrders: number; createdItems: number; updatedItems: number; failedOrders: number; errors: string[] }> {
-  const { clientId, clientSecret } = getBolCredentials();
-  // Ensure BolService is imported if not already at the top
-  // import BolService, { BolProductContent, BolCreateProductContentPayload, BolCreateProductAttribute, ProcessStatus } from './bol.service';
-  // import { IProduct } from '../models/shop.model'; // Assuming IProduct is in shop.model.ts
-  const bolService = new BolService(clientId, clientSecret);
-
+  const credentials = await getBolCredentials(); // Await the promise
+  const bolService = new BolService(credentials.clientId, credentials.clientSecret);
   let currentPage = 1;
   let morePages = true;
   const summary = {
@@ -412,17 +382,10 @@ export async function synchronizeBolOrders(
 }
 
 // --- Bol.com Integration for Offer Export ---
-// Moved BolService import to the top of the file if it's used by multiple sections.
-// import BolService from './bol.service'; // Already imported for Order Sync
-import { parse } from 'csv-parse';
-// import { IOffer } from '../models/shop.model'; // Already imported
+import { parse, CastingContext, Options as CsvParseOptions } from 'csv-parse';
+import axios, { AxiosError } from 'axios'; // Ensure AxiosError is imported for type checking
 
-// Function to get Bol API credentials from environment variables
-// This function is already defined above for Order Sync, ensure it's unique or shareable.
-// For now, assuming it's fine as is.
-// MODIFIED: Now fetches from settings_service
-import axios from 'axios'; // Make sure axios is imported
-
+// Function to get Bol API credentials (already modified to be async and use settings_service)
 async function getBolCredentials(): Promise<{ clientId: string; clientSecret: string }> {
   try {
     const settingsServiceUrl = process.env.SETTINGS_SERVICE_URL || 'http://localhost:3001';
