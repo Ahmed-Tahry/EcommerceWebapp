@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as SettingsService from '../services/settings.service';
-import { IAccountDetails, IVatSetting, IInvoiceSettings } from '../models/settings.model';
+import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus } from '../models/settings.model';
 
 // --- Account Details Handlers (Per-User) ---
 export const getAccountDetailsHandler = async (req: Request, res: Response, next: NextFunction) => {

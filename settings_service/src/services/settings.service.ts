@@ -135,12 +135,12 @@ async function createOrUpdateOnboardingStatus(
 
 // --- VAT Settings Service (Remains System-Wide for now) ---
 
-export async function createVatSetting(settingData: Omit<IVatSetting, 'id' | 'createdAt' | 'updatedAt'>): Promise<IVatSetting> {
-  } catch (error) {
-    console.error('Error saving account details:', error);
-    throw error;
-  }
-}
+// export async function createVatSetting(settingData: Omit<IVatSetting, 'id' | 'createdAt' | 'updatedAt'>): Promise<IVatSetting> {
+//   } catch (error) {
+//     console.error('Error saving account details:', error);
+//     throw error;
+//   }
+// }
 
 // --- VAT Settings Service ---
 
