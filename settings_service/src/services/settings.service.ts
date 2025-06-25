@@ -3,6 +3,8 @@ import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus }
 // Pool type is not directly used, can be removed if not needed elsewhere.
 // import { Pool } from 'pg';
 
+const PRIMARY_KEY_VALUE = 'primary'; // For single-row tables like invoice_settings
+
 // Helper to convert camelCase to snake_case for DB columns
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);

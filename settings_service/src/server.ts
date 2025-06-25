@@ -7,30 +7,36 @@ let serverInstance: http.Server;
 
 async function startServer() {
   console.log('Initializing database pool...');
-  getDBPool(); // Ensures pool is created using settings from config
+  getDBPool(); // Ensures pool is created
 
-  console.log('Testing database connection...');
-  const dbConnected = await testDBConnection();
-
-  if (!dbConnected && config.env !== 'test') {
-    console.error('FATAL: Database connection failed. Migrations will not run and server may be unstable.');
-    // For critical DB dependency, uncomment next line to prevent server start:
-    // process.exit(1);
-  } else if (dbConnected) {
+  try {
+    console.log('Testing database connection...');
+    await testDBConnection(); // This will throw if it fails
     console.log('Database connection successful.');
-    // Run migrations after successful DB connection
-    try {
-      console.log('Running database migrations...');
-      await runMigrations();
-      console.log('Database migrations completed successfully.');
-    } catch (migrationError) {
-      console.error('FATAL: Database migrations failed. Server will not start.', migrationError);
-      process.exit(1); // Exit if migrations fail
-    }
-  } else if (!dbConnected && config.env === 'test') {
-    console.warn('Database connection failed in TEST environment. Skipping migrations. Continuing server start for tests that might not need DB.');
-  }
 
+    // Run migrations after successful DB connection
+    // In test environment, migrations might be handled differently or skipped if DB is not critical for all tests
+    if (config.env !== 'test') {
+        try {
+            console.log('Running database migrations...');
+            await runMigrations();
+            console.log('Database migrations completed successfully.');
+        } catch (migrationError) {
+            console.error('FATAL: Database migrations failed. Server will not start.', migrationError);
+            process.exit(1); // Exit if migrations fail
+        }
+    } else {
+        console.warn('Skipping migrations in TEST environment by default. Ensure DB is set up if needed for tests.');
+    }
+
+  } catch (dbError) {
+    console.error('FATAL: Database connection or initial setup failed. Server will not start.', dbError);
+    if (config.env !== 'test') { // Don't exit in test mode, tests might mock DB
+        process.exit(1);
+    } else {
+        console.warn('Continuing server start in TEST environment despite DB connection failure for tests that might not need DB.');
+    }
+  }
 
   serverInstance = app.listen(config.port, () => {
     console.log(`Server is running on port ${config.port} in ${config.env} mode`);
