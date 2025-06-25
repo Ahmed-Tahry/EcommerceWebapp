@@ -184,17 +184,7 @@ function mapBolProductContentToLocal(bolContent: BolProductContent): Partial<IPr
   return localProduct;
 }
 
-export async function getBolProductContent(ean: string, language: string = 'nl'): Promise<Partial<IProduct> | null> {
-  const credentials = await getBolCredentials(); // Await the promise
-  const bolService = new BolService(credentials.clientId, credentials.clientSecret);
-  const bolContent = await bolService.fetchProductContent(ean, language);
-  if (!bolContent) {
-    console.log(`No Bol.com content found for EAN ${ean}, language ${language}.`);
-    return null;
-  }
-  return mapBolProductContentToLocal(bolContent);
-}
-
+// This is the corrected version, the one above (without userId) will be removed.
 export async function getBolProductContent(userId: string, ean: string, language: string = 'nl'): Promise<Partial<IProduct> | null> {
   const credentials = await getBolCredentials(userId); // Await the promise
   const bolService = new BolService(credentials.clientId, credentials.clientSecret);
