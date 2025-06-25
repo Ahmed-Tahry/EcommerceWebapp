@@ -10,9 +10,9 @@ export interface IAccountDetails {
 export interface IUserOnboardingStatus {
   userId: string; // PK, from Keycloak (X-User-ID)
   hasConfiguredBolApi: boolean;
-  // Add other boolean flags for steps as needed, e.g.:
-  // hasCompletedVatSetup?: boolean;
-  // hasCompletedInvoiceSetup?: boolean;
+  hasCompletedShopSync: boolean;
+  hasCompletedVatSetup: boolean;
+  hasCompletedInvoiceSetup: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }

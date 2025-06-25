@@ -87,20 +87,33 @@ export const updateOnboardingStepHandler = async (req: Request, res: Response, n
       return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
     }
 
-    // Expecting body like { "hasConfiguredBolApi": true } or other steps
-    const { hasConfiguredBolApi, ...otherSteps } = req.body; // Example, expand for more steps
+    // Expecting body like { "hasConfiguredBolApi": true, "hasCompletedShopSync": true, etc. }
+    const {
+      hasConfiguredBolApi,
+      hasCompletedShopSync,
+      hasCompletedVatSetup,
+      hasCompletedInvoiceSetup,
+      ...otherSteps // To catch any unexpected properties
+    } = req.body;
 
     const updates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'createdAt' | 'updatedAt'>> = {};
 
     if (hasConfiguredBolApi !== undefined && typeof hasConfiguredBolApi === 'boolean') {
       updates.hasConfiguredBolApi = hasConfiguredBolApi;
     }
-    // Add logic for otherSteps if they are defined in IUserOnboardingStatus model
-    // e.g. if (otherSteps.hasCompletedVatSetup !== undefined) updates.hasCompletedVatSetup = Boolean(otherSteps.hasCompletedVatSetup);
-
+    if (hasCompletedShopSync !== undefined && typeof hasCompletedShopSync === 'boolean') {
+      updates.hasCompletedShopSync = hasCompletedShopSync;
+    }
+    if (hasCompletedVatSetup !== undefined && typeof hasCompletedVatSetup === 'boolean') {
+      updates.hasCompletedVatSetup = hasCompletedVatSetup;
+    }
+    if (hasCompletedInvoiceSetup !== undefined && typeof hasCompletedInvoiceSetup === 'boolean') {
+      updates.hasCompletedInvoiceSetup = hasCompletedInvoiceSetup;
+    }
+    // Note: No logic for 'otherSteps' currently, they will be ignored.
 
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ message: 'No valid onboarding step data provided.' });
+      return res.status(400).json({ message: 'No valid onboarding step data provided in the request body.' });
     }
 
     const updatedStatus = await SettingsService.updateOnboardingStatus(userId, updates);

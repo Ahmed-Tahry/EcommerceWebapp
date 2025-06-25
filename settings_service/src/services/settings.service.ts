@@ -65,8 +65,14 @@ export async function getOnboardingStatus(userId: string): Promise<IUserOnboardi
     if (result.rows.length > 0) {
       return result.rows[0];
     }
-    // If no record, create a default one (all steps false)
-    const defaultStatus: Omit<IUserOnboardingStatus, 'createdAt'|'updatedAt'> = { userId, hasConfiguredBolApi: false };
+    // If no record, create a default one with all steps false
+    const defaultStatus: Omit<IUserOnboardingStatus, 'createdAt'|'updatedAt'> = {
+      userId,
+      hasConfiguredBolApi: false,
+      hasCompletedShopSync: false,
+      hasCompletedVatSetup: false,
+      hasCompletedInvoiceSetup: false,
+    };
     return createOrUpdateOnboardingStatus(defaultStatus);
 
   } catch (error) {
@@ -88,44 +94,101 @@ async function createOrUpdateOnboardingStatus(
   statusData: Partial<IUserOnboardingStatus> & { userId: string }
 ): Promise<IUserOnboardingStatus> {
   const pool = getDBPool();
-  const { userId, hasConfiguredBolApi } = statusData; // Add other steps as they are defined
+  const {
+    userId,
+    hasConfiguredBolApi,
+    hasCompletedShopSync,
+    hasCompletedVatSetup,
+    hasCompletedInvoiceSetup
+  } = statusData;
 
-  // Build SET clauses dynamically for defined fields in statusData
   const updateFields: string[] = [];
+  const insertFields: string[] = ['user_id'];
+  const insertValuesPlaceholders: string[] = ['$1'];
   const values: any[] = [userId];
   let valueCounter = 2;
 
-  if (hasConfiguredBolApi !== undefined) {
-    updateFields.push(`has_configured_bol_api = $${valueCounter++}`);
-    values.push(hasConfiguredBolApi);
-  }
-  // Add other fields here:
-  // if (statusData.hasCompletedVatSetup !== undefined) {
-  //   updateFields.push(`has_completed_vat_setup = $${valueCounter++}`);
-  //   values.push(statusData.hasCompletedVatSetup);
-  // }
+  // Helper to add field to update and insert lists
+  const addField = (fieldNameDb: string, value: any) => {
+    if (value !== undefined) {
+      updateFields.push(`${fieldNameDb} = $${valueCounter}`);
+      insertFields.push(fieldNameDb);
+      insertValuesPlaceholders.push(`$${valueCounter}`);
+      values.push(value);
+      valueCounter++;
+    }
+  };
 
-  if (updateFields.length === 0 && ! (await getOnboardingStatus(userId))) { // No specific fields to update, but record might not exist
-     // This case means only userId was passed, and no record exists. Create with defaults.
-     updateFields.push(`has_configured_bol_api = $${valueCounter++}`);
-     values.push(false); // Default value
-  } else if (updateFields.length === 0) { // Record exists, no fields to update
-      const existingStatus = await getOnboardingStatus(userId);
-      if(existingStatus) return existingStatus;
-      // This should not be reached if logic is correct, but as a fallback:
-      throw new Error("Onboarding status exists but no update fields provided, and could not retrieve current state.");
+  addField('has_configured_bol_api', hasConfiguredBolApi);
+  addField('has_completed_shop_sync', hasCompletedShopSync);
+  addField('has_completed_vat_setup', hasCompletedVatSetup);
+  addField('has_completed_invoice_setup', hasCompletedInvoiceSetup);
+
+  // If it's a new record and no specific true/false values were passed for some fields,
+  // they should default to false as per DB schema.
+  // The INSERT part will handle this if columns are not in statusData.
+  // However, if a field is explicitly 'undefined' in statusData but we want to ensure it's part of the INSERT with default.
+  // The current addField logic correctly omits undefined fields from the dynamic query parts.
+  // The DB default will apply for INSERT if a column is not listed.
+  // For ON CONFLICT DO UPDATE, we only update fields that were explicitly passed.
+
+  if (updateFields.length === 0) {
+    // No actual fields to update were provided.
+    // Try to fetch existing status. If it exists, return it.
+    // If it doesn't exist, it means we were called with just userId (or all other fields undefined)
+    // and the intention might be to create a default record.
+    // The getOnboardingStatus already handles creating a full default record.
+    // This situation (updateFields.length === 0) implies either:
+    // 1. An attempt to "touch" the record without changes (return existing or create default if missing).
+    // 2. Or, an empty body was sent to the update endpoint.
+    const existingStatus = await pool.query(
+      `SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_vat_setup AS "hasCompletedVatSetup", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM user_onboarding_status WHERE user_id = $1`,
+      [userId]
+    );
+    if (existingStatus.rows.length > 0) {
+      return existingStatus.rows[0];
+    }
+    // If no fields to update and record doesn't exist, we should insert a default.
+    // This case is better handled by getOnboardingStatus which prepares a full default object.
+    // If this function is called directly with only userId for a non-existent user,
+    // we need to ensure all default values are set for the INSERT part.
+    // The current `addField` logic will result in an INSERT with only user_id if all other fields are undefined.
+    // The DB defaults (FALSE) should then apply.
+    if (insertFields.length === 1 && insertFields[0] === 'user_id') { // Only userId was provided
+        // Add default false values for all fields for the INSERT part
+        // This ensures the RETURNING clause gets all fields.
+        if (hasConfiguredBolApi === undefined) { addField('has_configured_bol_api', false); }
+        if (hasCompletedShopSync === undefined) { addField('has_completed_shop_sync', false); }
+        if (hasCompletedVatSetup === undefined) { addField('has_completed_vat_setup', false); }
+        if (hasCompletedInvoiceSetup === undefined) { addField('has_completed_invoice_setup', false); }
+    }
+  }
+   if (insertFields.length === 1 && insertFields[0] === 'user_id' && updateFields.length > 0) {
+    // This means all fields in statusData were undefined except userId, but somehow updateFields got populated.
+    // This should not happen with current addField logic. Defensive check.
+    throw new Error("Logical error in createOrUpdateOnboardingStatus: updateFields populated with only userId defined.");
   }
 
 
   const query = `
-    INSERT INTO user_onboarding_status (user_id, ${updateFields.map(f => f.split(" = ")[0]).join(", ")})
-    VALUES ($1, ${values.slice(1).map((_,i) => `$${i+2}`).join(", ")})
+    INSERT INTO user_onboarding_status (${insertFields.join(", ")})
+    VALUES (${insertValuesPlaceholders.join(", ")})
     ON CONFLICT (user_id) DO UPDATE SET
       ${updateFields.join(", ")},
       updated_at = NOW()
-    RETURNING user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", created_at AS "createdAt", updated_at AS "updatedAt";
+    WHERE user_onboarding_status.user_id = $1  -- Ensure update only happens for the specific user
+    RETURNING
+      user_id AS "userId",
+      has_configured_bol_api AS "hasConfiguredBolApi",
+      has_completed_shop_sync AS "hasCompletedShopSync",
+      has_completed_vat_setup AS "hasCompletedVatSetup",
+      has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt";
   `;
   try {
+    // console.log("Executing query:", query, "with values:", values); // For debugging
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
