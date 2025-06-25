@@ -79,18 +79,34 @@ This guide outlines the sequence of API calls required to take a new user throug
 ## Step 3: Initial Shop Synchronization with Bol.com
 
 *   **Purpose:** `shop_service` performs the initial synchronization of products, offers, and orders from the user's Bol.com account.
-*   **Service:** `shop_service` (triggered by application logic), then `settings_service` (to update status).
-*   **Triggering Shop Sync (Conceptual - actual endpoint depends on `shop_service` design):**
-    *   Application logic (e.g., frontend or an orchestrator) would typically initiate this after `hasConfiguredBolApi` is true. This might involve calling one or more `shop_service` endpoints. Examples of conceptual `shop_service` calls that would run using the now-configured Bol API keys:
-        *   `POST YOUR_API_GATEWAY_URL/api/shop/sync-all` (hypothetical endpoint)
-        *   Or specific syncs:
-            *   `POST YOUR_API_GATEWAY_URL/api/shop/sync-orders`
-            *   `POST YOUR_API_GATEWAY_URL/api/shop/sync-offers-from-bol` (e.g., using the export offers CSV mechanism)
-            *   `POST YOUR_API_GATEWAY_URL/api/shop/sync-products-from-bol`
-    *   **Headers for `shop_service` calls:**
-        *   `X-User-ID: <user_id>` (This is crucial so `shop_service` can retrieve the correct Bol.com API keys from `settings_service`).
+*   **Service:** `shop_service` (for sync operations), then `settings_service` (to update onboarding status).
+*   **Triggering Shop Sync Operations:**
+    *   After `hasConfiguredBolApi` is true, the application should trigger the necessary synchronization tasks using the `shop_service` endpoints. These calls require the `X-User-ID` header.
+    *   **A. Sync Orders from Bol.com:**
+        *   **Method:** `POST`
+        *   **Endpoint:** `YOUR_API_GATEWAY_URL/api/shop/orders/sync/bol`
+        *   **Headers:** `X-User-ID: <user_id>`
+        *   **Query Parameters (Optional):**
+            *   `status` (string, e.g., "OPEN", "SHIPPED", defaults to "OPEN")
+            *   `fulfilmentMethod` (string, e.g., "FBR", "FBB")
+            *   `latestChangedDate` (string, format YYYY-MM-DD)
+        *   **Purpose:** Fetches orders from Bol.com based on filters and stores/updates them locally.
+    *   **B. Sync Offers from Bol.com:**
+        *   **Method:** `GET`
+        *   **Endpoint:** `YOUR_API_GATEWAY_URL/api/shop/offers/export/csv`
+        *   **Headers:** `X-User-ID: <user_id>`
+        *   **Purpose:** Initiates an offer export from Bol.com (as CSV), then parses and saves/updates these offers in the local database.
+    *   **C. Sync Products from Bol.com (Per EAN):**
+        *   The system might need to sync product details for EANs encountered in offers/orders. This is done on a per-product basis.
+        *   **Method:** `POST`
+        *   **Endpoint:** `YOUR_API_GATEWAY_URL/api/shop/products/:ean/sync-from-bol` (replace `:ean` with actual EAN)
+        *   **Headers:** `X-User-ID: <user_id>`
+        *   **Query Parameters (Optional):**
+            *   `language` (string, e.g., "nl", defaults to "nl")
+        *   **Purpose:** Fetches detailed product information for a specific EAN from Bol.com and updates the local product record.
+        *   *(Note: A bulk "sync all products" endpoint is not currently available; this per-EAN sync would be used as needed, possibly iteratively).*
 *   **Marking Shop Sync as Complete:**
-    *   Once the application determines that the relevant initial synchronization tasks are complete:
+    *   Once the application determines that the essential initial synchronization tasks (e.g., orders and offers) are complete:
     *   **Service:** `settings_service`
     *   **API Call:**
         *   **Method:** `POST`
