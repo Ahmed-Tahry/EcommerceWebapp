@@ -21,17 +21,23 @@ export const getShopInfo = async (req: Request, res: Response, next: NextFunctio
 // Handler for synchronizing orders from Bol.com
 export const syncBolOrdersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
+
     // Extract optional filter parameters from request query or body
     // For simplicity, using query params here.
     const status = req.query.status as string || 'OPEN'; // Default to OPEN orders
     const fulfilmentMethod = req.query.fulfilmentMethod as ('FBR' | 'FBB' | undefined) || undefined;
     const latestChangedDate = req.query.latestChangedDate as string || undefined; // Expects YYYY-MM-DD
 
-    console.log(`syncBolOrdersHandler: Initiating Bol.com order synchronization with params: status=${status}, fulfilmentMethod=${fulfilmentMethod}, latestChangedDate=${latestChangedDate}`);
+    console.log(`syncBolOrdersHandler: Initiating Bol.com order synchronization for user ${userId} with params: status=${status}, fulfilmentMethod=${fulfilmentMethod}, latestChangedDate=${latestChangedDate}`);
 
-    const result = await ShopService.synchronizeBolOrders(status, fulfilmentMethod, latestChangedDate);
+    const result = await ShopService.synchronizeBolOrders(userId, status, fulfilmentMethod, latestChangedDate);
 
-    console.log('syncBolOrdersHandler: Synchronization complete. Sending JSON response.');
+    console.log(`syncBolOrdersHandler: Synchronization complete for user ${userId}. Sending JSON response.`);
     // Determine overall status based on results
     if (result.failedOrders > 0 || result.errors.length > 0) {
       res.status(207).json({ // Multi-Status: some operations may have succeeded
@@ -70,11 +76,17 @@ export const syncBolOrdersHandler = async (req: Request, res: Response, next: Ne
 
 export const getProductContentHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
+
     const { ean } = req.params;
     const language = req.query.language as string || 'nl'; // Default to Dutch
 
-    console.log(`getProductContentHandler: Fetching Bol.com product content for EAN ${ean}, lang ${language}...`);
-    const productContent = await ShopService.getBolProductContent(ean, language);
+    console.log(`getProductContentHandler: Fetching Bol.com product content for EAN ${ean}, lang ${language}, user ${userId}...`);
+    const productContent = await ShopService.getBolProductContent(userId, ean, language);
 
     if (productContent) {
       res.status(200).json(productContent);
@@ -90,14 +102,20 @@ export const getProductContentHandler = async (req: Request, res: Response, next
 
 export const syncProductFromBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
+
     const { ean } = req.params;
     const language = req.query.language as string || 'nl';
 
-    console.log(`syncProductFromBolHandler: Syncing product EAN ${ean} from Bol.com (lang ${language}) to local DB...`);
-    const updatedProduct = await ShopService.updateLocalProductFromBol(ean, language);
+    console.log(`syncProductFromBolHandler: Syncing product EAN ${ean} from Bol.com (lang ${language}) to local DB for user ${userId}...`);
+    const updatedProduct = await ShopService.updateLocalProductFromBol(userId, ean, language);
 
     if (updatedProduct) {
-      res.status(200).json({ message: `Product EAN ${ean} synced from Bol.com and updated locally.`, product: updatedProduct });
+      res.status(200).json({ message: `Product EAN ${ean} synced from Bol.com and updated locally for user ${userId}.`, product: updatedProduct });
     } else {
       // This case should ideally be handled by an error in ShopService if fetching/mapping fails
       res.status(500).json({ message: `Failed to sync product EAN ${ean} from Bol.com.` });
@@ -122,11 +140,17 @@ export const syncProductFromBolHandler = async (req: Request, res: Response, nex
 
 export const syncProductToBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
+
     const { ean } = req.params;
     const language = req.query.language as string || 'nl';
 
-    console.log(`syncProductToBolHandler: Pushing local product EAN ${ean} content (lang ${language}) to Bol.com...`);
-    const result = await ShopService.pushLocalProductToBol(ean, language);
+    console.log(`syncProductToBolHandler: Pushing local product EAN ${ean} content (lang ${language}) to Bol.com for user ${userId}...`);
+    const result = await ShopService.pushLocalProductToBol(userId, ean, language);
 
     if (result.error) {
         // Check if the error is "Local product not found"
@@ -157,12 +181,18 @@ export const syncProductToBolHandler = async (req: Request, res: Response, next:
 
 export const getBolProcessStatusHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
+
     const { processId } = req.params;
-    console.log(`getBolProcessStatusHandler: Fetching status for process ID ${processId}...`);
-    const status = await ShopService.pollBolProcessStatus(processId, 1, 0); // Poll once immediately
+    console.log(`getBolProcessStatusHandler: Fetching status for process ID ${processId} for user ${userId}...`);
+    const status = await ShopService.pollBolProcessStatus(userId, processId, 1, 0); // Poll once immediately
     res.status(200).json(status);
   } catch (error) {
-    console.error(`getBolProcessStatusHandler: Error fetching status for process ID ${req.params.processId}:`, error);
+    console.error(`getBolProcessStatusHandler: Error fetching status for process ID ${req.params.processId} for user ${userId}:`, error);
     if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
       res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
       return;
@@ -178,11 +208,17 @@ export const getBolProcessStatusHandler = async (req: Request, res: Response, ne
 // Handler for exporting offers as CSV
 export const exportOffersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    console.log('exportOffersHandler: Initiating CSV export and database save...');
-    const result = await ShopService.exportAllOffersAsCsv();
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
+
+    console.log(`exportOffersHandler: Initiating CSV export and database save for user ${userId}...`);
+    const result = await ShopService.exportAllOffersAsCsv(userId);
 
     // Send JSON response indicating success/failure of the combined operation
-    console.log('exportOffersHandler: Sending JSON response.');
+    console.log(`exportOffersHandler: Sending JSON response for user ${userId}.`);
     if (result.errorCount && result.errorCount > 0) {
         // If there were errors during the DB save part, it might be a partial success
         res.status(207).json({ // Multi-Status

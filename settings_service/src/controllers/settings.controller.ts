@@ -5,9 +5,13 @@ import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus }
 // --- Account Details Handlers (Per-User) ---
 export const getAccountDetailsHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = req.headers['x-user-id'] as string;
+    let userId = req.headers['x-user-id'] as string;
+    if (!userId && req.query && req.query.userId) {
+      userId = req.query.userId as string;
+    }
+
     if (!userId) {
-      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header or query parameter.' });
     }
     const details = await SettingsService.getAccountDetailsByUserId(userId);
     if (details) {
@@ -29,9 +33,16 @@ export const getAccountDetailsHandler = async (req: Request, res: Response, next
 
 export const saveAccountDetailsHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = req.headers['x-user-id'] as string;
+    let userId = req.headers['x-user-id'] as string;
+    if (!userId && req.body && req.body.userId) {
+      userId = req.body.userId as string;
+      // Ensure userId from body is not passed along with other details to the service
+      // if your service's saveAccountDetails expects only specific fields.
+      // However, SettingsService.saveAccountDetails takes userId as a separate first param.
+    }
+
     if (!userId) {
-      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header or request body.' });
     }
 
     const { bolClientId, bolClientSecret } = req.body;

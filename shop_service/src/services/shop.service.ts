@@ -195,8 +195,19 @@ export async function getBolProductContent(ean: string, language: string = 'nl')
   return mapBolProductContentToLocal(bolContent);
 }
 
-export async function updateLocalProductFromBol(ean: string, language: string = 'nl'): Promise<IProduct | null> {
-  const mappedProductData = await getBolProductContent(ean, language);
+export async function getBolProductContent(userId: string, ean: string, language: string = 'nl'): Promise<Partial<IProduct> | null> {
+  const credentials = await getBolCredentials(userId); // Await the promise
+  const bolService = new BolService(credentials.clientId, credentials.clientSecret);
+  const bolContent = await bolService.fetchProductContent(ean, language);
+  if (!bolContent) {
+    console.log(`No Bol.com content found for EAN ${ean}, language ${language}.`);
+    return null;
+  }
+  return mapBolProductContentToLocal(bolContent);
+}
+
+export async function updateLocalProductFromBol(userId: string, ean: string, language: string = 'nl'): Promise<IProduct | null> {
+  const mappedProductData = await getBolProductContent(userId, ean, language);
   if (!mappedProductData) {
     throw new Error(`Could not fetch or map product content from Bol.com for EAN ${ean}.`);
   }
@@ -204,8 +215,8 @@ export async function updateLocalProductFromBol(ean: string, language: string = 
   return createProduct(updatePayload as IProduct);
 }
 
-export async function pushLocalProductToBol(ean: string, language: string = 'nl'): Promise<{ processId: string | null; message: string; error?: any }> {
-  const credentials = await getBolCredentials(); // Await the promise
+export async function pushLocalProductToBol(userId: string, ean: string, language: string = 'nl'): Promise<{ processId: string | null; message: string; error?: any }> {
+  const credentials = await getBolCredentials(userId); // Await the promise
   const bolService = new BolService(credentials.clientId, credentials.clientSecret);
   const localProduct = await getProductByEan(ean);
   if (!localProduct) {
@@ -236,8 +247,8 @@ export async function pushLocalProductToBol(ean: string, language: string = 'nl'
   }
 }
 
-export async function pollBolProcessStatus(processId: string, maxAttempts = 20, pollInterval = 5000): Promise<ProcessStatus> {
-    const credentials = await getBolCredentials(); // Await the promise
+export async function pollBolProcessStatus(userId: string, processId: string, maxAttempts = 20, pollInterval = 5000): Promise<ProcessStatus> {
+    const credentials = await getBolCredentials(userId); // Await the promise
     const bolService = new BolService(credentials.clientId, credentials.clientSecret);
     let attempts = 0;
     while (attempts < maxAttempts) {
@@ -258,11 +269,12 @@ export async function pollBolProcessStatus(processId: string, maxAttempts = 20, 
 import { BolOrder, BolOrderItem } from './bol.service';
 
 export async function synchronizeBolOrders(
+  userId: string,
   status: string = 'OPEN',
   fulfilmentMethod: 'FBR' | 'FBB' | null = null,
   latestChangedDate: string | null = null
 ): Promise<{ createdOrders: number; updatedOrders: number; createdItems: number; updatedItems: number; failedOrders: number; errors: string[] }> {
-  const credentials = await getBolCredentials(); // Await the promise
+  const credentials = await getBolCredentials(userId); // Await the promise
   const bolService = new BolService(credentials.clientId, credentials.clientSecret);
   let currentPage = 1;
   let morePages = true;
@@ -390,16 +402,26 @@ import type { AxiosError } from 'axios';
 interface ParseContext {
   column: string | number | undefined;
 }
-// Function to get Bol API credentials (already modified to be async and use settings_service)
-async function getBolCredentials(): Promise<{ clientId: string; clientSecret: string }> {
+// Function to get Bol API credentials, now accepting userId
+async function getBolCredentials(userId: string): Promise<{ clientId: string; clientSecret: string }> {
+  if (!userId) {
+    console.error('User ID is required to fetch Bol credentials.');
+    throw new Error('User ID not provided to getBolCredentials.');
+  }
   try {
-    const settingsServiceNginxUrl = process.env.SETTINGS_SERVICE_NGINX_URL || 'http://nginx:80/api/settings/settings';
-    const accountUrl = `${settingsServiceNginxUrl}/account`;
+    // Using a direct URL to settings_service, assuming it's resolvable as 'settings_service' on port 3000
+    // This should be configurable, e.g., via process.env.SETTINGS_SERVICE_DIRECT_URL
+    const settingsServiceDirectUrl = process.env.SETTINGS_SERVICE_DIRECT_URL || 'http://settings_service:3000';
+    const accountUrl = `${settingsServiceDirectUrl}/account?userId=${encodeURIComponent(userId)}`;
 
-    console.log(`Fetching Bol API credentials for current user from settings service via Nginx at ${accountUrl}...`);
+    console.log(`Fetching Bol API credentials for user ${userId} directly from settings service at ${accountUrl}...`);
 
+    // Note: If settings_service is called directly (not through Nginx), it won't have JWT validation
+    // by default unless settings_service itself implements it (which it currently does not for this path).
+    // The X-User-ID header mechanism is an Nginx addition.
+    // We are now relying on the modified settings_service to accept userId in query/body.
     const response = await axios.get(accountUrl);
-    console.log("reponse" , response)
+
     interface AccountDetailsResponse {
         bolClientId: string | null;
         bolClientSecret: string | null;
@@ -407,33 +429,38 @@ async function getBolCredentials(): Promise<{ clientId: string; clientSecret: st
     const data = response.data as AccountDetailsResponse;
 
     if (!data.bolClientId || !data.bolClientSecret) {
-      console.error('Fetched Bol API credentials from settings_service are incomplete or null for the user.');
-      throw new Error('Bol API credentials from settings_service are incomplete or missing for the user.');
+      console.error(`Fetched Bol API credentials from settings_service for user ${userId} are incomplete or null.`);
+      throw new Error(`Bol API credentials from settings_service for user ${userId} are incomplete or missing.`);
     }
-    console.log('Successfully fetched Bol API credentials for the user.');
+    console.log(`Successfully fetched Bol API credentials for user ${userId}.`);
     return { clientId: data.bolClientId, clientSecret: data.bolClientSecret };
 
   } catch (error: unknown) {
-    console.error('Failed to fetch Bol API credentials from settings_service:', error);
-    // Use the static method from the imported 'axios' object
+    console.error(`Failed to fetch Bol API credentials from settings_service for user ${userId}:`, error);
     if (axios.isAxiosError(error)) {
-        const axiosError = error; // No need to cast if isAxiosError is true and types are correct
-        console.error('Axios error details from settings_service:', axiosError.response?.data);
+        const axiosError = error;
         const status = axiosError.response?.status;
-        const message = (axiosError.response?.data as any)?.message || 'No additional details'; // Access message safely
-        throw new Error(`Failed to retrieve Bol API credentials. Settings service responded with status ${status}: ${message}. Ensure settings_service is running and configured, and Nginx is routing correctly.`);
+        const responseData = axiosError.response?.data;
+        let message = 'No additional details';
+        if (typeof responseData === 'object' && responseData !== null && 'message' in responseData) {
+            message = (responseData as {message: string}).message;
+        } else if (typeof responseData === 'string') {
+            message = responseData;
+        }
+        console.error(`Axios error details from settings_service for user ${userId}:`, responseData);
+        throw new Error(`Failed to retrieve Bol API credentials for user ${userId}. Settings service responded with status ${status}: ${message}. Ensure settings_service is running at the direct URL and configured to accept userId in query/body.`);
     } else if (error instanceof Error) {
         console.error('Non-Axios error:', error.message);
-        throw new Error(`Failed to retrieve Bol API credentials from settings_service. Error: ${error.message}`);
+        throw new Error(`Failed to retrieve Bol API credentials for user ${userId} from settings_service. Error: ${error.message}`);
     }
-    throw new Error(`Failed to retrieve Bol API credentials from settings_service due to an unknown error.`);
+    throw new Error(`Failed to retrieve Bol API credentials for user ${userId} from settings_service due to an unknown error.`);
   }
 }
 
 
-export async function exportAllOffersAsCsv(): Promise<any> {
+export async function exportAllOffersAsCsv(userId: string): Promise<any> {
   try {
-    const credentials = await getBolCredentials();
+    const credentials = await getBolCredentials(userId);
     const bolService = new BolService(credentials.clientId, credentials.clientSecret);
 
     console.log('Attempting to export all offers as CSV via BolService...');
