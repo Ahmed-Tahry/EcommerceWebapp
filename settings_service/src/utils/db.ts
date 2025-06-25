@@ -29,5 +29,35 @@ export const testDBConnection = async () => {
     console.log('SettingsService database connection successful.');
   } catch (error) {
     console.error('SettingsService database connection failed:', error);
+    throw error; // Re-throw to allow caller to know it failed
   }
+};
+
+// Function to gracefully end the pool (e.g., during shutdown)
+export const endDBPool = async (): Promise<void> => {
+  if (pool) {
+    console.log('Closing database pool for SettingsService...');
+    await pool.end();
+    console.log('Database pool for SettingsService closed.');
+  }
+};
+
+// Placeholder for migrations - in a real app, use a migration tool like node-pg-migrate
+export const runMigrations = async (): Promise<void> => {
+  console.log('Placeholder: runMigrations() called. In a real app, this would run actual DB migrations.');
+  // Example:
+  // const client = await pool.connect();
+  // try {
+  //   await client.query('BEGIN');
+  //   // await client.query('CREATE TABLE IF NOT EXISTS ...'); // Your migration queries
+  //   await client.query('COMMIT');
+  //   console.log('Migrations applied successfully.');
+  // } catch (e) {
+  //   await client.query('ROLLBACK');
+  //   console.error('Migration failed:', e);
+  //   throw e;
+  // } finally {
+  //   client.release();
+  // }
+  return Promise.resolve();
 };
