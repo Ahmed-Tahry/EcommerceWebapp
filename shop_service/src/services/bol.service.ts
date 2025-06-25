@@ -1,7 +1,13 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
 
 // Define the structure for the process status response
-interface ProcessStatus {
+// Exporting it so it can be imported by other services if needed (e.g. shop.service.ts)
+export interface ProcessStatusLink {
+  rel: string;
+  href: string;
+  method: string;
+}
+export interface ProcessStatus {
   processStatusId: string;
   entityId: string;
   eventType: string;
@@ -153,7 +159,10 @@ class BolService {
     });
 
     this.apiClient.interceptors.request.use(
-      async (config) => {
+      async (config: AxiosRequestConfig): Promise<AxiosRequestConfig> => {
+        if (!config.headers) { // Ensure headers object exists
+            config.headers = {};
+        }
         if (!this.isTokenValid()) {
           await this.authenticate();
         }
@@ -162,7 +171,7 @@ class BolService {
         }
         return config;
       },
-      (error) => Promise.reject(error)
+      (error: any) => Promise.reject(error) // Or AxiosError if preferred and fits all cases
     );
   }
 
@@ -223,10 +232,11 @@ class BolService {
       const exportRequest: OfferExportRequest = { format };
       const exportResponse = await this.apiClient.post<ProcessStatus>('/offers/export', exportRequest);
 
-      const processStatusUrl = exportResponse.data.links.find(link => link.rel === 'self')?.href;
-      if (!processStatusUrl) {
+      const processStatusLink = exportResponse.data.links.find((link: ProcessStatusLink) => link.rel === 'self');
+      if (!processStatusLink || !processStatusLink.href) {
         throw new Error('Process status URL not found in export response.');
       }
+      const processStatusUrl = processStatusLink.href;
       const processId = exportResponse.data.processStatusId;
       console.log(`Offer export initiated. Process ID: ${processId}`);
 
@@ -241,20 +251,22 @@ class BolService {
         console.log(`Polling process status for ID ${processId}, attempt ${attempts}`);
 
         // Use the full URL provided by the API for process status
+        // This axios call is outside the apiClient, so it needs its own auth header if not public
         const statusResponse = await axios.get<ProcessStatus>(processStatusUrl, {
           headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'Accept': 'application/vnd.retailer.v10+json', // Ensure correct accept header for this specific call
+            'Authorization': `Bearer ${this.accessToken}`, // Assuming this external URL also needs Bearer token
+            'Accept': 'application/vnd.retailer.v10+json',
           }
         });
         const currentStatus = statusResponse.data;
 
         if (currentStatus.status === 'SUCCESS') {
           console.log('Offer export successful.');
-          const downloadLink = currentStatus.links.find(link => link.rel === 'download')?.href;
-          if (!downloadLink) {
+          const downloadLinkObj = currentStatus.links.find((link: ProcessStatusLink) => link.rel === 'download');
+          if (!downloadLinkObj || !downloadLinkObj.href) {
             throw new Error('Download link not found in successful process status.');
           }
+          const downloadLink = downloadLinkObj.href;
 
           // Step 3: Download the file
           // The download link might be for a different domain or require different headers (e.g. no auth)
