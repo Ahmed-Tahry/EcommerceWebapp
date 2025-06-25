@@ -180,9 +180,12 @@ export const syncProductToBolHandler = async (req: Request, res: Response, next:
 };
 
 export const getBolProcessStatusHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const userId = req.headers['x-user-id'] as string; // Define userId at the function scope
+
   try {
-    const userId = req.headers['x-user-id'] as string;
     if (!userId) {
+      // Log the absence of userId before returning, to aid debugging if this path is taken.
+      console.error('getBolProcessStatusHandler: User ID not provided in X-User-ID header.');
       res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
       return;
     }
@@ -192,7 +195,8 @@ export const getBolProcessStatusHandler = async (req: Request, res: Response, ne
     const status = await ShopService.pollBolProcessStatus(userId, processId, 1, 0); // Poll once immediately
     res.status(200).json(status);
   } catch (error) {
-    console.error(`getBolProcessStatusHandler: Error fetching status for process ID ${req.params.processId} for user ${userId}:`, error);
+    // userId is now definitely in scope for the catch block
+    console.error(`getBolProcessStatusHandler: Error fetching status for process ID ${req.params.processId} for user ${userId || 'UNKNOWN'}:`, error);
     if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
       res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
       return;
