@@ -1,4 +1,10 @@
-import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
+import axios from 'axios';
+// Manually define types if direct import fails, or ensure @types/axios is compatible
+// This usually means there's an issue with how types are resolved or module settings.
+// For now, let's assume the named imports should work and the issue might be elsewhere or version conflict.
+// If these still fail, the types might be accessible via axios.default.AxiosInstance etc. or need manual definition.
+import type { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
+
 
 // Define the structure for the process status response
 // Exporting it so it can be imported by other services if needed (e.g. shop.service.ts)
@@ -211,12 +217,20 @@ class BolService {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  private handleApiError(error: AxiosError<BolApiError>, context: string): never {
+  private handleApiError(error: AxiosError<BolApiError | unknown>, context: string): never {
     if (error.response) {
       const { status, data } = error.response;
-      const errorDetails = JSON.stringify(data, null, 2);
-      console.error(`Error in ${context}: Status ${status}, Data: ${errorDetails}`);
-      throw new Error(`Bol API Error in ${context}: ${data.title || 'Unknown error'} - ${data.detail}`);
+      // Type guard for BolApiError
+      if (typeof data === 'object' && data !== null && 'title' in data && 'detail' in data) {
+        const bolError = data as BolApiError;
+        const errorDetails = JSON.stringify(bolError, null, 2);
+        console.error(`Error in ${context}: Status ${status}, Data: ${errorDetails}`);
+        throw new Error(`Bol API Error in ${context}: ${bolError.title || 'Unknown error'} - ${bolError.detail}`);
+      } else {
+        // Handle cases where data is not a BolApiError (e.g. plain text, other JSON structure)
+        console.error(`Error in ${context}: Status ${status}, Data: ${JSON.stringify(data, null, 2)}`);
+        throw new Error(`Bol API Error in ${context}: Status ${status} - Unexpected response structure.`);
+      }
     } else if (error.request) {
       console.error(`Error in ${context}: No response received`, error.request);
       throw new Error(`Bol API Error in ${context}: No response from server.`);

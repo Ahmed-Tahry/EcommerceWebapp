@@ -382,48 +382,56 @@ export async function synchronizeBolOrders(
 }
 
 // --- Bol.com Integration for Offer Export ---
-import { parse, CastingContext, Options as CsvParseOptions } from 'csv-parse';
-import axios, { AxiosError } from 'axios'; // Ensure AxiosError is imported for type checking
+import { parse } from 'csv-parse';
+import type { CastingContext, Options as CsvParseOptions } from 'csv-parse';
+import axios from 'axios';
+import type { AxiosError } from 'axios';
 
 // Function to get Bol API credentials (already modified to be async and use settings_service)
 async function getBolCredentials(): Promise<{ clientId: string; clientSecret: string }> {
   try {
-    const settingsServiceUrl = process.env.SETTINGS_SERVICE_URL || 'http://localhost:3001';
-    console.log(`Fetching Bol API credentials from settings service at ${settingsServiceUrl}...`);
+    const settingsServiceNginxUrl = process.env.SETTINGS_SERVICE_NGINX_URL || 'http://localhost/api/settings';
+    const accountUrl = `${settingsServiceNginxUrl}/account`;
 
-    // Explicitly type the expected response from settings/account
+    console.log(`Fetching Bol API credentials for current user from settings service via Nginx at ${accountUrl}...`);
+
+    const response = await axios.get(accountUrl);
+
     interface AccountDetailsResponse {
         bolClientId: string | null;
         bolClientSecret: string | null;
-        // other fields like id, createdAt, updatedAt might be present
     }
-    const response = await axios.get<AccountDetailsResponse>(`${settingsServiceUrl}/settings/account`);
+    const data = response.data as AccountDetailsResponse;
 
-    const { bolClientId, bolClientSecret } = response.data;
-
-    if (!bolClientId || !bolClientSecret) {
-      console.error('Fetched Bol API credentials from settings_service are incomplete or null.');
-      throw new Error('Bol API credentials from settings_service are incomplete or missing.');
+    if (!data.bolClientId || !data.bolClientSecret) {
+      console.error('Fetched Bol API credentials from settings_service are incomplete or null for the user.');
+      throw new Error('Bol API credentials from settings_service are incomplete or missing for the user.');
     }
-    console.log('Successfully fetched Bol API credentials.');
-    return { clientId: bolClientId, clientSecret: bolClientSecret };
-  } catch (error) {
+    console.log('Successfully fetched Bol API credentials for the user.');
+    return { clientId: data.bolClientId, clientSecret: data.bolClientSecret };
+
+  } catch (error: unknown) {
     console.error('Failed to fetch Bol API credentials from settings_service:', error);
-    if (axios.isAxiosError(error) && error.response) {
-        console.error('Axios error details from settings_service:', error.response.data);
-         throw new Error(`Failed to retrieve Bol API credentials. Settings service responded with status ${error.response.status}: ${error.response.data?.message || 'No additional details'}. Ensure settings_service is running and configured.`);
-    } else if (axios.isAxiosError(error) && error.request) {
-        console.error('No response received from settings_service. Is it running at the configured URL?');
-        throw new Error(`Failed to retrieve Bol API credentials. No response from settings_service. Ensure it's running and accessible. Error: ${(error as Error).message}`);
+    // Use the static method from the imported 'axios' object
+    if (axios.isAxiosError(error)) {
+        const axiosError = error; // No need to cast if isAxiosError is true and types are correct
+        console.error('Axios error details from settings_service:', axiosError.response?.data);
+        const status = axiosError.response?.status;
+        const message = (axiosError.response?.data as any)?.message || 'No additional details'; // Access message safely
+        throw new Error(`Failed to retrieve Bol API credentials. Settings service responded with status ${status}: ${message}. Ensure settings_service is running and configured, and Nginx is routing correctly.`);
+    } else if (error instanceof Error) {
+        console.error('Non-Axios error:', error.message);
+        throw new Error(`Failed to retrieve Bol API credentials from settings_service. Error: ${error.message}`);
     }
-    throw new Error(`Failed to retrieve Bol API credentials from settings_service. Error: ${(error as Error).message}`);
+    throw new Error(`Failed to retrieve Bol API credentials from settings_service due to an unknown error.`);
   }
 }
 
-export async function exportAllOffersAsCsv(): Promise<any> { // Return type was changed to any previously
+
+export async function exportAllOffersAsCsv(): Promise<any> {
   try {
-    const { clientId, clientSecret } = await getBolCredentials(); // Now async
-    const bolService = new BolService(clientId, clientSecret);
+    const credentials = await getBolCredentials();
+    const bolService = new BolService(credentials.clientId, credentials.clientSecret);
 
     console.log('Attempting to export all offers as CSV via BolService...');
     const csvData = await bolService.exportOffers('CSV');
@@ -433,12 +441,6 @@ export async function exportAllOffersAsCsv(): Promise<any> { // Return type was 
     console.log(`CSV processing complete. Success: ${importResult.successCount}, Errors: ${importResult.errorCount}`);
 
     if (importResult.errorCount > 0) {
-      // Decide if partial success is acceptable or if this should be an overall failure
-      // For now, log errors and return a message including the outcome.
-      const errorMessage = `Offer import completed with ${importResult.errorCount} errors. ${importResult.successCount} offers saved. Errors: ${importResult.errors.join('; ')}`;
-      // console.error(errorMessage); // Already logged in _parseAndSaveOffersFromCsv
-      // Depending on desired behavior, you might throw an error here if errorCount > 0
-      // throw new Error(errorMessage);
       return {
         message: `Offer import completed with some errors. Saved: ${importResult.successCount}, Failed: ${importResult.errorCount}.`,
         details: importResult.errors,
@@ -453,11 +455,13 @@ export async function exportAllOffersAsCsv(): Promise<any> { // Return type was 
         errorCount: importResult.errorCount
     };
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error in exportAllOffersAsCsv (ShopService):', error);
-    // Rethrow the error to be handled by the controller or a higher-level error handler
-    // Ensure the error is an instance of Error for consistent handling upstream
-    if (error instanceof Error) {
+    if (axios.isAxiosError(error)) { // Use the static method
+        const axiosError = error;
+        console.error('Axios error during offer export:', axiosError.response?.data || axiosError.message);
+        throw new Error(`Failed during offer export process: ${axiosError.message}`);
+    } else if (error instanceof Error) {
         throw error;
     }
     throw new Error(String(error));
