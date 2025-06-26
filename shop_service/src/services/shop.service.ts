@@ -402,7 +402,7 @@ async function getBolCredentials(userId: string): Promise<{ clientId: string; cl
     // Using a direct URL to settings_service, assuming it's resolvable as 'settings_service' on port 3000
     // This should be configurable, e.g., via process.env.SETTINGS_SERVICE_DIRECT_URL
     const settingsServiceDirectUrl = process.env.SETTINGS_SERVICE_DIRECT_URL || 'http://settings_service:3000';
-    const accountUrl = `${settingsServiceDirectUrl}/account?userId=${encodeURIComponent(userId)}`;
+    const accountUrl = `${settingsServiceDirectUrl}/settings/account?userId=${encodeURIComponent(userId)}`;
 
     console.log(`Fetching Bol API credentials for user ${userId} directly from settings service at ${accountUrl}...`);
 
