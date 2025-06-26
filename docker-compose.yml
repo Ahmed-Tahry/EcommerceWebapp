@@ -1,0 +1,139 @@
+version: '3.8'
+
+volumes:
+  postgres_data:
+    driver: local
+  kong_db_data: 
+    driver: local
+
+networks:
+  keycloak_network: 
+    driver: bridge
+
+services:
+  # Keycloak's PostgreSQL Database
+  postgres-db:
+    image: postgres:13
+    container_name: postgres-db-keycloak
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloakadmin
+      POSTGRES_PASSWORD: StrongPassword123!
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports: 
+      - "5432:5432"
+    networks:
+      - keycloak_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloakadmin -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer
+    container_name: adminer_pg
+    ports:
+      - "8082:8080" 
+    depends_on:
+      - postgres-db
+    networks:
+      - keycloak_network
+  # Keycloak Service
+  keycloak:
+    build: ./keycloak_config
+    container_name: keycloak-server
+    ports:
+      - "8180:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-db:5432/keycloak
+      KC_DB_USERNAME: keycloakadmin
+      KC_DB_PASSWORD: StrongPassword123!
+      KC_HTTP_ENABLED: true
+      KC_HTTPS_ENABLED: false
+      KC_HTTP_PORT: 8080
+      KC_HOSTNAME_URL: "http://keycloak-server:8080"
+      KC_HOSTNAME_ADMIN_URL: "http://localhost:8180"
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    volumes:
+      - ./keycloak_config/configure_keycloak_oidc.sh:/opt/keycloak/bin/configure_keycloak_oidc.sh
+      - ./keycloak_config/configure_keycloak_roles.sh:/opt/keycloak/bin/configure_keycloak_roles.sh
+      - ./keycloak_config/entrypoint.sh:/opt/keycloak/bin/entrypoint.sh
+    entrypoint: ["/opt/keycloak/bin/entrypoint.sh"]
+    command: []
+    networks:
+      - keycloak_network
+
+    #nginx 
+  nginx:
+    build: ./nginx_config
+    ports:
+      - "80:80"
+    networks:
+      - keycloak_network
+
+  mock-service:
+    image: kennethreitz/httpbin
+    container_name: mock-service
+    ports:
+      - "8081:80"
+    networks:
+      - keycloak_network
+
+  shop_service:
+    build:
+      context: ./shop_service
+      dockerfile: Dockerfile
+    container_name: shop_service
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./shop_service:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      # - PORT=3000 # Already exposed and set in service
+      - DB_HOST=postgres-db
+      - DB_USER=keycloakadmin
+      - DB_PASSWORD=StrongPassword123!
+      - DB_NAME=ShopDb
+      - DB_PORT=5432
+    networks:
+      - keycloak_network
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  settings_service:
+    build:
+      context: ./settings_service
+      dockerfile: Dockerfile
+    container_name: settings_service
+    ports:
+      - "3001:3000" # Different port than shop_service
+    volumes:
+      - ./settings_service:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      # - PORT=3000 # Already exposed and set in service by default
+      - DB_HOST=postgres-db
+      - DB_USER=keycloakadmin # Assuming same DB user for now
+      - DB_PASSWORD=StrongPassword123! # Assuming same DB password
+      - DB_NAME=SettingsDb # Different database name
+      - DB_PORT=5432
+    networks:
+      - keycloak_network
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    restart: unless-stopped
