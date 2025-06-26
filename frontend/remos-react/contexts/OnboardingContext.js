@@ -19,30 +19,50 @@ const initialStatus = {
 
 export const OnboardingProvider = ({ children }) => {
   const [onboardingStatus, setOnboardingStatus] = useState(initialStatus);
-  const [isLoading, setIsLoading] = useState(true);
+import { useAuth } from './AuthContext'; // Import useAuth
+
+  const [isLoading, setIsLoading] = useState(true); // Loading for onboarding data
   const [error, setError] = useState(null);
+  const { authenticated, isLoading: authIsLoading, token } = useAuth(); // Get auth state
 
   const fetchOnboardingStatus = useCallback(async () => {
+    if (!authenticated || !token) { // Ensure authenticated and token is present
+      setIsLoading(false); // Not loading onboarding status if not auth'd
+      // setError("User not authenticated. Cannot fetch onboarding status."); // Optional: set error
+      setOnboardingStatus(initialStatus); // Reset status
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
+      // callApi will now use the token via keycloakService
       const data = await callApi('/settings/onboarding/status', 'GET');
       setOnboardingStatus(prevStatus => ({ ...prevStatus, ...data }));
     } catch (err) {
       console.error('Failed to fetch onboarding status:', err);
-      // Check if err has a message property, otherwise stringify err
       const errorMessage = (err && err.message) ? err.message : String(err);
       setError(errorMessage || 'Failed to load onboarding status.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [authenticated, token]); // Add authenticated and token as dependencies
 
   useEffect(() => {
-    fetchOnboardingStatus();
-  }, [fetchOnboardingStatus]);
+    // Fetch onboarding status only if authentication is complete and user is authenticated
+    if (!authIsLoading && authenticated) {
+      fetchOnboardingStatus();
+    } else if (!authIsLoading && !authenticated) {
+      // If auth check is done and user is not authenticated, reset status and stop loading.
+      setOnboardingStatus(initialStatus);
+      setIsLoading(false);
+    }
+  }, [authIsLoading, authenticated, fetchOnboardingStatus]);
 
   const updateOnboardingStep = useCallback(async (stepPayload) => {
+    if (!authenticated) {
+      setError("User not authenticated. Cannot update onboarding step.");
+      return Promise.reject(new Error("User not authenticated"));
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -57,17 +77,21 @@ export const OnboardingProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [authenticated]); // Add authenticated as dependency
 
   const markStepAsComplete = useCallback(async (stepName) => {
+    if (!authenticated) {
+      setError("User not authenticated. Cannot mark step as complete.");
+      return Promise.reject(new Error("User not authenticated"));
+    }
     if (onboardingStatus && typeof onboardingStatus[stepName] === 'undefined') {
         const errorMessage = `Error: Step ${stepName} is not a valid onboarding status property.`;
         console.error(errorMessage);
         setError(errorMessage);
-        return;
+        return Promise.reject(new Error(errorMessage));
     }
     return await updateOnboardingStep({ [stepName]: true });
-  }, [updateOnboardingStep, onboardingStatus]);
+  }, [updateOnboardingStep, onboardingStatus, authenticated]); // Add authenticated
 
 
   const value = {

@@ -11,11 +11,34 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhos
  * @returns {Promise<any>} - The JSON response from the API.
  * @throws {Error} - Throws an error if the API call fails or returns a non-OK status.
  */
+import { getKeycloakInstance } from '@/lib/keycloakService';
+
 export const callApi = async (endpoint, method = 'GET', body = null, additionalHeaders = {}) => {
   let token = null;
-  // Ensure localStorage is available (client-side only)
-  if (typeof window !== 'undefined') {
-    token = localStorage.getItem('authToken');
+  const kcInstance = getKeycloakInstance();
+
+  if (kcInstance && kcInstance.token) {
+    // Ensure token is fresh before making the call
+    // This is a simplified check. A more robust way is to check token expiry or use kcInstance.updateToken()
+    // However, updateToken is async and callApi is often expected to be directly awaitable.
+    // The AuthContext's getToken() is better for this, but callApi is not a hook.
+    // For now, we'll use the current token and rely on AuthContext's proactive refresh or onTokenExpired handler.
+
+    // Proactively try to update token if it's close to expiring (e.g., within 30 seconds)
+    // This adds slight complexity here but might be safer.
+    try {
+        if (kcInstance.isTokenExpired(30)) { // Check if token expires in next 30s
+            await kcInstance.updateToken(30); // Attempt to refresh if expiring soon
+        }
+        token = kcInstance.token;
+    } catch (error) {
+        console.error("Failed to refresh token in callApi, proceeding with current token or none.", error);
+        // If refresh fails, token might become null if it was already expired and couldn't be refreshed.
+        // Or keycloak-js might clear it. For simplicity, we just use what's there after attempt.
+        token = kcInstance.token;
+        // Potentially, if refresh fails critically, one might want to trigger logout or throw a specific error.
+        // For now, we let the API call proceed, and it might fail with a 401 if the token is bad.
+    }
   }
 
   const headers = {

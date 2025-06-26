@@ -3,6 +3,7 @@
 import React from 'react';
 import Layout from '@/components/layout/Layout';
 import { OnboardingProvider, useOnboarding } from '@/contexts/OnboardingContext';
+import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
 
 // Import actual components that will be re-created
 import BolApiForm from '@/components/onboarding/BolApiForm';
@@ -21,15 +22,16 @@ const OnboardingStepStatus = ({ label, completed }) => (
   </li>
 );
 
-const OnboardingContent = () => {
+// This component will hold the actual onboarding steps logic
+const OnboardingSteps = () => {
   const { onboardingStatus, isLoading, error } = useOnboarding();
 
-  if (isLoading) {
-    return <div className="text-center py-10"><div className="text-lg">Loading onboarding status...</div></div>;
+  if (isLoading) { // This is isLoading from OnboardingContext
+    return <div className="text-center py-10"><div className="text-lg">Loading onboarding data...</div></div>;
   }
 
-  if (error) {
-    return <div className="text-center py-10 text-red-600"><div className="text-lg font-semibold">Error loading onboarding status:</div><p>{error}</p></div>;
+  if (error) { // This is error from OnboardingContext
+    return <div className="text-center py-10 text-red-600"><div className="text-lg font-semibold">Error loading onboarding data:</div><p>{error}</p></div>;
   }
 
   const allStepsComplete =
@@ -69,17 +71,44 @@ const OnboardingContent = () => {
       {onboardingStatus.hasConfiguredBolApi && !onboardingStatus.hasCompletedShopSync && <ShopSync />}
       {onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && !onboardingStatus.hasCompletedVatSetup && <VatSetup />}
       {onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup && !onboardingStatus.hasCompletedInvoiceSetup && <InvoiceSettingsForm />}
-
     </div>
   );
 };
 
+
 export default function OnboardingPage() {
+  const { authenticated, isLoading: authIsLoading, login } = useAuth();
+
+  if (authIsLoading) {
+    return (
+      <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Onboarding">
+        <div className="max-w-4xl mx-auto px-4 py-10 text-center">
+          <div className="text-lg">Checking authentication status...</div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!authenticated) {
+    return (
+      <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Onboarding">
+        <div className="max-w-4xl mx-auto px-4 py-10 text-center wg-box">
+          <h2 className="text-2xl font-semibold mb-4">Authentication Required</h2>
+          <p className="text-gray-600 mb-6">Please log in to access the onboarding process.</p>
+          <button onClick={() => login()} className="tf-button">
+            Login
+          </button>
+        </div>
+      </Layout>
+    );
+  }
+
+  // If authenticated, render the OnboardingProvider and its content
   return (
     <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Onboarding">
       <OnboardingProvider>
-        <div className="max-w-4xl mx-auto px-4 py-10"> {/* Centered and constrained width */}
-          <OnboardingContent />
+        <div className="max-w-4xl mx-auto px-4 py-10">
+          <OnboardingSteps />
         </div>
       </OnboardingProvider>
     </Layout>
