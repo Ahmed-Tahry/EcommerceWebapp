@@ -100,6 +100,7 @@ export const getProductContentHandler = async (req: Request, res: Response, next
   }
 };
 
+// Removed syncProductFromBolHandler as its functionality is covered by the new syncProductsNewHandler
 // export const syncProductFromBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
 //   try {
 //     const userId = req.headers['x-user-id'] as string;
@@ -107,17 +108,13 @@ export const getProductContentHandler = async (req: Request, res: Response, next
 //       res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
 //       return;
 //     }
-
 //     const { ean } = req.params;
 //     const language = req.query.language as string || 'nl';
-
 //     console.log(`syncProductFromBolHandler: Syncing product EAN ${ean} from Bol.com (lang ${language}) to local DB for user ${userId}...`);
-//     const updatedProduct = await ShopService.updateLocalProductFromBol(userId, ean, language);
-
+//     const updatedProduct = await ShopService.updateLocalProductFromBol(userId, ean, language); // This line was causing the error
 //     if (updatedProduct) {
 //       res.status(200).json({ message: `Product EAN ${ean} synced from Bol.com and updated locally for user ${userId}.`, product: updatedProduct });
 //     } else {
-//       // This case should ideally be handled by an error in ShopService if fetching/mapping fails
 //       res.status(500).json({ message: `Failed to sync product EAN ${ean} from Bol.com.` });
 //     }
 //   } catch (error) {

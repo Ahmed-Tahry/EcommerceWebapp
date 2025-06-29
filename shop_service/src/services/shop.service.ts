@@ -671,34 +671,35 @@ interface ParseContext {
 async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCount: number; errorCount: number; errors: string[] }> {
   return new Promise((resolve, reject) => {
     parse(csvData, {
-      columns: (header: string[]): (keyof IOffer | null)[] => {
-        const normalizedHeaders = header.map(normalizeHeader);
-        header.forEach((h: string, i: number) => {
-          if (!normalizedHeaders[i]) console.warn(`Header "${h}" was not mapped and will be ignored.`);
-        });
-        return normalizedHeaders.filter(Boolean) as (keyof IOffer)[];
-      },
+      columns: true, // Use the first row as header names
       skip_empty_lines: true,
       trim: true,
       cast: (value: string, context: ParseContext) => {
-        const column = context.column as keyof IOffer | undefined;
-        if (!column) return value;
+        // context.column will be the string header name from the CSV
+        const columnHeader = context.column as string;
 
-        if (column === 'bundlePricesPrice' || column === 'stockAmount' || column === 'correctedStock') {
+        if (columnHeader === 'bundlePricesPrice' || columnHeader === 'stockAmount' || columnHeader === 'correctedStock') {
           return value === '' || value === null || value === undefined ? null : Number(value);
         }
-        if (column === 'onHoldByRetailer') {
+        if (columnHeader === 'onHoldByRetailer') {
           if (typeof value === 'string') {
             return value.toLowerCase() === 'true' || value === '1';
           }
           return Boolean(value);
         }
-        if (column === 'mutationDateTime') {
+        if (columnHeader === 'mutationDateTime') {
           return value === '' || value === null || value === undefined ? null : new Date(value);
+        }
+        // Handle EAN specifically if it comes in scientific notation
+        if (columnHeader === 'ean' && typeof value === 'string' && value.toUpperCase().includes('E+')) {
+            const num = Number(value);
+            if (!isNaN(num)) {
+                return String(BigInt(num)); // Convert to BigInt then to string to preserve all digits
+            }
         }
         return value;
       },
-    }, (err: CsvError | undefined, records: Partial<IOffer>[] | undefined) => {
+    }, (err: CsvError | undefined, records: Record<string, any>[] | undefined) => { // records are now Record<string, any>[]
       if (err) {
         console.error('Error parsing CSV:', err);
         return reject(new Error(`Failed to parse CSV data: ${err.message}`));
@@ -717,29 +718,44 @@ async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCou
         console.log(`Parsed ${records.length} records from CSV. Attempting to save to database...`);
 
         for (const record of records) {
-          if (!record.offerId || !record.ean) {
+          // Access record properties using original CSV header names
+          const offerId = record.offerId as string;
+          const ean = record.ean as string;
+
+          if (!offerId || !ean) {
             errors.push(`Skipping record due to missing offerId or ean: ${JSON.stringify(record)}`);
             errorCount++;
             continue;
           }
 
           try {
-            const existingOffer = await getOfferById(record.offerId);
+            const existingOffer = await getOfferById(offerId);
+
+            // Construct offerPayload by mapping fields from CSV record to IOffer fields
+            // Ensure all IOffer fields are correctly typed and handled if missing from CSV
             const offerPayload: IOffer = {
-              offerId: record.offerId,
-              ean: record.ean,
-              conditionName: record.conditionName !== undefined ? record.conditionName : (existingOffer?.conditionName || null),
-              conditionCategory: record.conditionCategory !== undefined ? record.conditionCategory : (existingOffer?.conditionCategory || null),
-              conditionComment: record.conditionComment !== undefined ? record.conditionComment : (existingOffer?.conditionComment || null),
-              bundlePricesPrice: record.bundlePricesPrice !== undefined ? record.bundlePricesPrice : (existingOffer?.bundlePricesPrice || null),
-              fulfilmentDeliveryCode: record.fulfilmentDeliveryCode !== undefined ? record.fulfilmentDeliveryCode : (existingOffer?.fulfilmentDeliveryCode || null),
-              stockAmount: record.stockAmount !== undefined ? record.stockAmount : (existingOffer?.stockAmount || null),
-              onHoldByRetailer: record.onHoldByRetailer !== undefined ? record.onHoldByRetailer : (existingOffer?.onHoldByRetailer || false),
-              fulfilmentType: record.fulfilmentType !== undefined ? record.fulfilmentType : (existingOffer?.fulfilmentType || null),
-              mutationDateTime: record.mutationDateTime !== undefined ? record.mutationDateTime : (existingOffer?.mutationDateTime || new Date()),
-              referenceCode: record.referenceCode !== undefined ? record.referenceCode : (existingOffer?.referenceCode || null),
-              correctedStock: record.correctedStock !== undefined ? record.correctedStock : (existingOffer?.correctedStock || null),
+              offerId: offerId,
+              ean: ean,
+              conditionName: record.conditionName as string ?? existingOffer?.conditionName ?? null,
+              conditionCategory: record.conditionCategory as string ?? existingOffer?.conditionCategory ?? null,
+              conditionComment: record.conditionComment as string ?? existingOffer?.conditionComment ?? null,
+              bundlePricesPrice: record.bundlePricesPrice as number ?? existingOffer?.bundlePricesPrice ?? null,
+              fulfilmentDeliveryCode: record.fulfilmentDeliveryCode as string ?? existingOffer?.fulfilmentDeliveryCode ?? null,
+              stockAmount: record.stockAmount as number ?? existingOffer?.stockAmount ?? null,
+              onHoldByRetailer: record.onHoldByRetailer as boolean ?? existingOffer?.onHoldByRetailer ?? false,
+              fulfilmentType: record.fulfilmentType as string ?? existingOffer?.fulfilmentType ?? null,
+              mutationDateTime: record.mutationDateTime as Date ?? existingOffer?.mutationDateTime ?? new Date(),
+              referenceCode: record.referenceCode as string ?? existingOffer?.referenceCode ?? null,
+              correctedStock: record.correctedStock as number ?? existingOffer?.correctedStock ?? null,
             };
+
+            // Ensure numeric and boolean fields that might be null/undefined from CSV
+            // are correctly passed or defaulted before DB operation
+            offerPayload.bundlePricesPrice = offerPayload.bundlePricesPrice === undefined ? null : offerPayload.bundlePricesPrice;
+            offerPayload.stockAmount = offerPayload.stockAmount === undefined ? null : offerPayload.stockAmount;
+            offerPayload.correctedStock = offerPayload.correctedStock === undefined ? null : offerPayload.correctedStock;
+            offerPayload.onHoldByRetailer = offerPayload.onHoldByRetailer === undefined ? false : offerPayload.onHoldByRetailer;
+
 
             if (existingOffer) {
               await updateOffer(record.offerId, offerPayload);
