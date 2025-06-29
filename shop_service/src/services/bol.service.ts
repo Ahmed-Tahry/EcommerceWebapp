@@ -156,7 +156,7 @@ class BolService {
     this.clientSecret = clientSecret;
 
     this.apiClient = axios.create({
-      baseURL: 'https://api.bol.com/retailer-demo', // Main Retailer API
+      baseURL: 'https://api.bol.com/retailer', // Main Retailer API
       headers: {
         'Accept': 'application/vnd.retailer.v10+json', // Default for v10
         'Content-Type': 'application/vnd.retailer.v10+json',
@@ -272,11 +272,14 @@ this.apiClient.interceptors.request.use(
         const currentStatus = statusResponse.data;
 
         if (currentStatus.status === 'SUCCESS') {
+          console.log(currentStatus)
           console.log('Offer export successful.');
+          
           const downloadLinkObj = currentStatus.links.find((link: ProcessStatusLink) => link.rel === 'download');
           if (!downloadLinkObj || !downloadLinkObj.href) {
             throw new Error('Download link not found in successful process status.');
           }
+          
           const downloadLink = downloadLinkObj.href;
 
           // Step 3: Download the file
