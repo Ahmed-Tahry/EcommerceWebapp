@@ -216,26 +216,59 @@ export const exportOffersHandler = async (req: Request, res: Response, next: Nex
     }
 
     console.log(`exportOffersHandler: Initiating CSV export and database save for user ${userId}...`);
-    const result = await ShopService.exportAllOffersAsCsv(userId);
+    const offerExportResult = await ShopService.exportAllOffersAsCsv(userId);
 
-    // Send JSON response indicating success/failure of the combined operation
-    console.log(`exportOffersHandler: Sending JSON response for user ${userId}.`);
-    if (result.errorCount && result.errorCount > 0) {
-        // If there were errors during the DB save part, it might be a partial success
-        res.status(207).json({ // Multi-Status
-            message: result.message,
-            successCount: result.successCount,
-            errorCount: result.errorCount,
-            errors: result.details
-        });
-    } else {
-        res.status(200).json({
-            message: result.message,
-            successCount: result.successCount
-        });
+    console.log(`exportOffersHandler: Offer export part finished for user ${userId}.`);
+
+    if (offerExportResult.errorCount && offerExportResult.errorCount > 0) {
+      // If offer export itself had critical errors or saved no offers,
+      // respond immediately without attempting product sync.
+      return res.status(207).json({
+        message: "Offer export completed with errors, product sync not initiated.",
+        offerExport: offerExportResult
+      });
     }
+
+    if (offerExportResult.successCount === 0) {
+      // If no offers were successfully saved, no EANs to process for products.
+       return res.status(200).json({
+        message: "No offers were successfully exported or saved. Product sync not initiated.",
+        offerExport: offerExportResult
+      });
+    }
+
+    // If offer export was successful (or partially successful with some offers saved), proceed to product sync.
+    console.log(`exportOffersHandler: Offer export successful for user ${userId}. Triggering product sync...`);
+    const productSyncResult = await ShopService.syncProductsFromOffersAndRetailerApi(userId);
+    console.log(`exportOffersHandler: Product sync finished for user ${userId}.`);
+
+    // Consolidate results
+    const finalStatus = (offerExportResult.errorCount > 0 || productSyncResult.failed > 0 || productSyncResult.errors.length > 0) ? 207 : 200;
+    let finalMessage = "Offer export and product synchronization process completed.";
+    if (finalStatus === 207) {
+        finalMessage += " Some operations had issues.";
+    } else {
+        finalMessage += " All operations successful.";
+    }
+
+    res.status(finalStatus).json({
+        message: finalMessage,
+        offerExportSummary: {
+            message: offerExportResult.message,
+            successCount: offerExportResult.successCount,
+            errorCount: offerExportResult.errorCount,
+            errors: offerExportResult.details || [],
+        },
+        productSyncSummary: {
+            processed: productSyncResult.processed,
+            success: productSyncResult.success,
+            failed: productSyncResult.failed,
+            errors: productSyncResult.errors,
+        }
+    });
+
   } catch (error) {
-    console.error('exportOffersHandler: Error during CSV export and save:', error);
+    console.error('exportOffersHandler: Error during combined offer export and product sync:', error);
     if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
       res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
       return;
@@ -441,41 +474,39 @@ export const deleteOrderHandler = async (req: Request, res: Response, next: Next
 };
 
 // Controller for the new product sync logic
-export const syncProductsNewHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const userId = req.headers['x-user-id'] as string;
-    if (!userId) {
-      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
-      return;
-    }
+// Commented out as this is now triggered by exportOffersHandler
+// export const syncProductsNewHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+//   try {
+//     const userId = req.headers['x-user-id'] as string;
+//     if (!userId) {
+//       res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+//       return;
+//     }
+//     // const { csvFileUrl } = req.body; // csvFileUrl is no longer used
+//     console.log(`syncProductsNewHandler: Initiating new product synchronization for user ${userId}.`);
+//     const result = await ShopService.syncProductsFromOffersAndRetailerApi(userId);
+//     if (result.failed > 0 || result.errors.length > 0) {
+//       res.status(207).json({ // Multi-Status
+//         message: 'Product synchronization completed with some errors.',
+//         processed: result.processed,
+//         success: result.success,
+//         failed: result.failed,
+//         errors: result.errors,
+//       });
+//     } else {
+//       res.status(200).json({
+//         message: 'Product synchronization completed successfully.',
+//         processed: result.processed,
+//         success: result.success,
+//       });
+//     }
+//   } catch (error) {
+//     console.error('syncProductsNewHandler: Error during product synchronization:', error);
+//     // Add more specific error handling if needed (e.g. Bol API errors if it were used directly here)
+//     next(error);
+//   }
+// };
 
-    // const { csvFileUrl } = req.body; // csvFileUrl is no longer used
-
-    console.log(`syncProductsNewHandler: Initiating new product synchronization for user ${userId}.`);
-
-    const result = await ShopService.syncProductsFromOffersAndRetailerApi(userId);
-
-    if (result.failed > 0 || result.errors.length > 0) {
-      res.status(207).json({ // Multi-Status
-        message: 'Product synchronization completed with some errors.',
-        processed: result.processed,
-        success: result.success,
-        failed: result.failed,
-        errors: result.errors,
-      });
-    } else {
-      res.status(200).json({
-        message: 'Product synchronization completed successfully.',
-        processed: result.processed,
-        success: result.success,
-      });
-    }
-  } catch (error) {
-    console.error('syncProductsNewHandler: Error during product synchronization:', error);
-    // Add more specific error handling if needed (e.g. Bol API errors if it were used directly here)
-    next(error);
-  }
-};
 
 // Controller to update VAT for a specific product
 export const updateProductVatHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
