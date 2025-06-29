@@ -55,8 +55,8 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
   const pool = getDBPool();
   // Using ON CONFLICT to handle potential duplicate EANs by updating existing record (upsert)
   const query = `
-    INSERT INTO products (ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol")
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    INSERT INTO products (ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT (ean) DO UPDATE SET
       title = EXCLUDED.title,
       description = EXCLUDED.description,
@@ -64,7 +64,8 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
       "mainImageUrl" = EXCLUDED."mainImageUrl",
       attributes = EXCLUDED.attributes,
       "lastSyncFromBol" = EXCLUDED."lastSyncFromBol",
-      "lastSyncToBol" = EXCLUDED."lastSyncToBol"
+      "lastSyncToBol" = EXCLUDED."lastSyncToBol",
+      vat_rate = EXCLUDED.vat_rate
     RETURNING *;
   `;
   const values = [
@@ -76,6 +77,7 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
     productData.attributes ? JSON.stringify(productData.attributes) : null,
     productData.lastSyncFromBol,
     productData.lastSyncToBol,
+    productData.vatRate,
   ];
   try {
     const result = await pool.query(query, values);
@@ -88,15 +90,16 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
 
 export async function getProductByEan(ean: string): Promise<IProduct | null> {
   const pool = getDBPool();
-  const query = 'SELECT * FROM products WHERE ean = $1;';
+  const query = 'SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate" FROM products WHERE ean = $1;';
   try {
     const result = await pool.query(query, [ean]);
     if (result.rows.length > 0) {
-      const product = result.rows[0];
+      const product = result.rows[0] as IProduct; // Cast to IProduct
       // Ensure attributes are parsed if stored as JSON string
       if (typeof product.attributes === 'string') {
         product.attributes = JSON.parse(product.attributes);
       }
+      // The vatRate should be correctly mapped due to 'AS "vatRate"'
       return product;
     }
     return null;
@@ -114,10 +117,14 @@ export async function updateProduct(ean: string, updateData: Partial<IProduct>):
 
   for (let [key, value] of Object.entries(updateData)) {
     if (value !== undefined && key !== 'ean') {
+      let dbKey = key;
       if (key === 'attributes' && typeof value === 'object' && value !== null) {
         value = JSON.stringify(value); // Stringify attributes if it's an object
       }
-      setClauses.push(`"${key}" = $${valueCount++}`);
+      if (key === 'vatRate') { // Map model key to db column key
+        dbKey = 'vat_rate';
+      }
+      setClauses.push(`"${dbKey}" = $${valueCount++}`);
       values.push(value);
     }
   }
@@ -196,14 +203,7 @@ export async function getBolProductContent(userId: string, ean: string, language
   return mapBolProductContentToLocal(bolContent);
 }
 
-export async function updateLocalProductFromBol(userId: string, ean: string, language: string = 'nl'): Promise<IProduct | null> {
-  const mappedProductData = await getBolProductContent(userId, ean, language);
-  if (!mappedProductData) {
-    throw new Error(`Could not fetch or map product content from Bol.com for EAN ${ean}.`);
-  }
-  const updatePayload: Partial<IProduct> = { ...mappedProductData, lastSyncFromBol: new Date() };
-  return createProduct(updatePayload as IProduct);
-}
+// Removed updateLocalProductFromBol as its functionality is covered by the new syncProductsFromOffersAndRetailerApi
 
 export async function pushLocalProductToBol(userId: string, ean: string, language: string = 'nl'): Promise<{ processId: string | null; message: string; error?: any }> {
   const credentials = await getBolCredentials(userId); // Await the promise
@@ -254,6 +254,157 @@ export async function pollBolProcessStatus(userId: string, processId: string, ma
     }
     throw new Error(`Process ID ${processId} timed out after ${maxAttempts} polling attempts.`);
 }
+
+// --- New Product Sync Logic ---
+
+// Fetches product details from the Bol.com Retailer API endpoint /retailer/products/{ean}
+// Note: The BolProductContent interface is based on /content/products/{ean}.
+// The actual /retailer/products/{ean} might have a different structure.
+// This function assumes it's similar enough or that relevant fields (title, brand, description) are present.
+async function _fetchRetailerProductDetails(ean: string, bolService: BolService, language: string = 'nl'): Promise<Partial<IProduct> | null> {
+  console.log(`_fetchRetailerProductDetails: Fetching from /retailer/products/${ean} for language ${language}`);
+  try {
+    // We're re-using BolProductContent for the expected response type.
+    // If /retailer/products/{ean} has a different structure, a new interface would be needed.
+    // The BolService's apiClient will use its default headers (Accept, Content-Type for v10).
+    // The `fetchProductContent` method in BolService uses `/content/products/{ean}`.
+    // We are targeting `/retailer/products/{ean}` as per the task.
+    // We'll make a direct call using the apiClient from the BolService instance.
+
+    // IMPORTANT ASSUMPTION: The '/retailer/products/{ean}' endpoint exists and returns data
+    // similar in structure to '/content/products/{ean}' or at least containing common product fields.
+    // If not, this mapping will fail or be incomplete.
+    // The BolService apiClient is configured for 'https://api.bol.com/retailer-demo'
+    const response = await bolService.apiClient.get<BolProductContent>(`/retailer/products/${ean}`, {
+        params: { language },
+         // apiClient should automatically add Auth header via interceptor
+    });
+
+    if (response.data) {
+      // Use a mapping function similar to mapBolProductContentToLocal,
+      // but tailored if the structure of /retailer/products/{ean} is different.
+      // For now, let's assume mapBolProductContentToLocal is adaptable or the structure is similar.
+      const mappedData = mapBolProductContentToLocal(response.data); // Reuses existing mapping
+      console.log(`_fetchRetailerProductDetails: Successfully fetched and mapped data for EAN ${ean}.`);
+      return mappedData;
+    }
+    return null;
+  } catch (error: any) {
+    const axiosError = error as AxiosError<any>;
+    if (axiosError.isAxiosError && axiosError.response && axiosError.response.status === 404) {
+      console.warn(`_fetchRetailerProductDetails: Product with EAN ${ean} not found at /retailer/products/${ean}.`);
+      return null;
+    }
+    // Log other errors but don't let one failed EAN stop the whole batch.
+    // The BolService's handleApiError throws, so we might not reach here if it's used directly by bolService.apiClient.get
+    // However, direct axios calls might not use it unless we explicitly call it.
+    // The interceptor in BolService should handle auth, but other errors might pass through.
+    console.error(`_fetchRetailerProductDetails: Error fetching product details for EAN ${ean} from /retailer/products API:`, axiosError.message);
+    if (axiosError.response) {
+        console.error('Response data:', axiosError.response.data);
+        console.error('Response status:', axiosError.response.status);
+    }
+    // We return null to allow the sync process to continue with other EANs.
+    // The error will be logged in the main sync function's summary.
+    throw new Error(`Failed to fetch retailer details for EAN ${ean}: ${axiosError.message}`);
+  }
+}
+
+export async function syncProductsFromOffersAndRetailerApi(userId: string): Promise<{ processed: number; success: number; failed: number; errors: string[] }> {
+  let eansToProcess: string[] = [];
+  const summary = { processed: 0, success: 0, failed: 0, errors: [] as string[] };
+
+  console.log(`Starting product sync for user ${userId}. Fetching EANs from existing offers in the database.`);
+  try {
+    // Step 1: Query the local 'offers' table to get all unique EANs.
+    // It's assumed that the 'offers' table is kept up-to-date by a separate process
+    // that calls exportAllOffersAsCsv or a similar mechanism.
+    const allLocalOffers = await getAllOffers(); // Fetches all offers from the DB
+
+    if (allLocalOffers.length === 0) {
+      summary.errors.push("No offers found in the local database to process EANs from.");
+      console.log("Product sync cannot proceed as no offers are available locally.");
+      return summary;
+    }
+
+    eansToProcess = [...new Set(allLocalOffers.map(offer => offer.ean).filter(Boolean))];
+
+    if (eansToProcess.length === 0) {
+      summary.errors.push("No unique EANs found in the local offers database.");
+      console.log("Product sync cannot proceed as no EANs were extracted from local offers.");
+      return summary;
+    }
+    console.log(`Extracted ${eansToProcess.length} unique EANs from the local offers database for user ${userId}.`);
+
+  } catch (error: any) {
+    console.error(`Error fetching EANs from the local offers database for user ${userId}:`, error);
+    summary.errors.push(`Failed to fetch EANs from local offers database: ${error.message}`);
+    return summary; // Abort if fetching EANs fails critically
+  }
+
+  console.log(`Proceeding to process ${eansToProcess.length} EANs for user ${userId}.`);
+  summary.processed = eansToProcess.length;
+
+  // Instantiate BolService once for all EANs
+  let bolServiceInstance: BolService;
+  try {
+    const credentials = await getBolCredentials(userId);
+    bolServiceInstance = new BolService(credentials.clientId, credentials.clientSecret);
+  } catch (credError: any) {
+    console.error(`Failed to get Bol credentials for user ${userId}: ${credError.message}. Aborting sync.`);
+    summary.errors.push(`Failed to initialize Bol service for product sync: ${credError.message}`);
+    // Update summary to reflect that all planned EANs could not be processed due to this initial failure.
+    summary.failed = eansToProcess.length;
+    return summary;
+  }
+
+  for (const ean of eansToProcess) {
+    try {
+      console.log(`Processing EAN: ${ean}`);
+      let productData: Partial<IProduct> = { ean };
+
+      // Step 1: Fetch details from the retailer API
+      // Defaulting language to 'nl', can be made configurable if needed.
+      const retailerDetails = await _fetchRetailerProductDetails(ean, bolServiceInstance, 'nl');
+      if (retailerDetails) {
+        productData = { ...productData, ...retailerDetails };
+        // Assuming data from this endpoint implies a sync from Bol, so set lastSyncFromBol
+        productData.lastSyncFromBol = new Date();
+      } else {
+        console.warn(`No details found from Bol.com retailer API for EAN ${ean}. Product will be created/updated with minimal info.`);
+      }
+
+      // Step 2: (Placeholder for future) Potentially enrich with other data sources if needed.
+      // The current _fetchRetailerProductDetails already uses Bol.com. If another source
+      // or a different type of Bol.com content (e.g., from /content/products/ endpoint via getBolProductContent)
+      // was needed, it would be called here and merged.
+      // For now, the main source of product details is _fetchRetailerProductDetails.
+
+      // Ensure essential fields like title are not empty if possible.
+      // If retailerDetails was null and no other source provided a title, it might remain null.
+      // A default title could be set here if required:
+      // if (!productData.title) {
+      //   productData.title = `Product EAN: ${ean}`;
+      // }
+
+      // Set vatRate to null initially, to be updated manually via settings service
+      productData.vatRate = null;
+
+      await createProduct(productData as IProduct); // createProduct handles upsert
+      console.log(`Successfully created/updated product for EAN ${ean}.`);
+      summary.success++;
+    } catch (error: any) {
+      console.error(`Failed to process EAN ${ean}:`, error);
+      summary.failed++;
+      summary.errors.push(`EAN ${ean}: ${error.message}`);
+      // Decide if one error should stop the whole batch or continue. Currently continues.
+    }
+  }
+
+  console.log("Product synchronization complete.", summary);
+  return summary;
+}
+
 
 // --- Bol.com Order Synchronization ---
 import { BolOrder, BolOrderItem } from './bol.service';
@@ -520,34 +671,35 @@ interface ParseContext {
 async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCount: number; errorCount: number; errors: string[] }> {
   return new Promise((resolve, reject) => {
     parse(csvData, {
-      columns: (header: string[]): (keyof IOffer | null)[] => {
-        const normalizedHeaders = header.map(normalizeHeader);
-        header.forEach((h: string, i: number) => {
-          if (!normalizedHeaders[i]) console.warn(`Header "${h}" was not mapped and will be ignored.`);
-        });
-        return normalizedHeaders.filter(Boolean) as (keyof IOffer)[];
-      },
+      columns: true, // Use the first row as header names
       skip_empty_lines: true,
       trim: true,
       cast: (value: string, context: ParseContext) => {
-        const column = context.column as keyof IOffer | undefined;
-        if (!column) return value;
+        // context.column will be the string header name from the CSV
+        const columnHeader = context.column as string;
 
-        if (column === 'bundlePricesPrice' || column === 'stockAmount' || column === 'correctedStock') {
+        if (columnHeader === 'bundlePricesPrice' || columnHeader === 'stockAmount' || columnHeader === 'correctedStock') {
           return value === '' || value === null || value === undefined ? null : Number(value);
         }
-        if (column === 'onHoldByRetailer') {
+        if (columnHeader === 'onHoldByRetailer') {
           if (typeof value === 'string') {
             return value.toLowerCase() === 'true' || value === '1';
           }
           return Boolean(value);
         }
-        if (column === 'mutationDateTime') {
+        if (columnHeader === 'mutationDateTime') {
           return value === '' || value === null || value === undefined ? null : new Date(value);
+        }
+        // Handle EAN specifically if it comes in scientific notation
+        if (columnHeader === 'ean' && typeof value === 'string' && value.toUpperCase().includes('E+')) {
+            const num = Number(value);
+            if (!isNaN(num)) {
+                return String(BigInt(num)); // Convert to BigInt then to string to preserve all digits
+            }
         }
         return value;
       },
-    }, (err: CsvError | undefined, records: Partial<IOffer>[] | undefined) => {
+    }, (err: CsvError | undefined, records: Record<string, any>[] | undefined) => { // records are now Record<string, any>[]
       if (err) {
         console.error('Error parsing CSV:', err);
         return reject(new Error(`Failed to parse CSV data: ${err.message}`));
@@ -566,29 +718,44 @@ async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCou
         console.log(`Parsed ${records.length} records from CSV. Attempting to save to database...`);
 
         for (const record of records) {
-          if (!record.offerId || !record.ean) {
+          // Access record properties using original CSV header names
+          const offerId = record.offerId as string;
+          const ean = record.ean as string;
+
+          if (!offerId || !ean) {
             errors.push(`Skipping record due to missing offerId or ean: ${JSON.stringify(record)}`);
             errorCount++;
             continue;
           }
 
           try {
-            const existingOffer = await getOfferById(record.offerId);
+            const existingOffer = await getOfferById(offerId);
+
+            // Construct offerPayload by mapping fields from CSV record to IOffer fields
+            // Ensure all IOffer fields are correctly typed and handled if missing from CSV
             const offerPayload: IOffer = {
-              offerId: record.offerId,
-              ean: record.ean,
-              conditionName: record.conditionName !== undefined ? record.conditionName : (existingOffer?.conditionName || null),
-              conditionCategory: record.conditionCategory !== undefined ? record.conditionCategory : (existingOffer?.conditionCategory || null),
-              conditionComment: record.conditionComment !== undefined ? record.conditionComment : (existingOffer?.conditionComment || null),
-              bundlePricesPrice: record.bundlePricesPrice !== undefined ? record.bundlePricesPrice : (existingOffer?.bundlePricesPrice || null),
-              fulfilmentDeliveryCode: record.fulfilmentDeliveryCode !== undefined ? record.fulfilmentDeliveryCode : (existingOffer?.fulfilmentDeliveryCode || null),
-              stockAmount: record.stockAmount !== undefined ? record.stockAmount : (existingOffer?.stockAmount || null),
-              onHoldByRetailer: record.onHoldByRetailer !== undefined ? record.onHoldByRetailer : (existingOffer?.onHoldByRetailer || false),
-              fulfilmentType: record.fulfilmentType !== undefined ? record.fulfilmentType : (existingOffer?.fulfilmentType || null),
-              mutationDateTime: record.mutationDateTime !== undefined ? record.mutationDateTime : (existingOffer?.mutationDateTime || new Date()),
-              referenceCode: record.referenceCode !== undefined ? record.referenceCode : (existingOffer?.referenceCode || null),
-              correctedStock: record.correctedStock !== undefined ? record.correctedStock : (existingOffer?.correctedStock || null),
+              offerId: offerId,
+              ean: ean,
+              conditionName: record.conditionName as string ?? existingOffer?.conditionName ?? null,
+              conditionCategory: record.conditionCategory as string ?? existingOffer?.conditionCategory ?? null,
+              conditionComment: record.conditionComment as string ?? existingOffer?.conditionComment ?? null,
+              bundlePricesPrice: record.bundlePricesPrice as number ?? existingOffer?.bundlePricesPrice ?? null,
+              fulfilmentDeliveryCode: record.fulfilmentDeliveryCode as string ?? existingOffer?.fulfilmentDeliveryCode ?? null,
+              stockAmount: record.stockAmount as number ?? existingOffer?.stockAmount ?? null,
+              onHoldByRetailer: record.onHoldByRetailer as boolean ?? existingOffer?.onHoldByRetailer ?? false,
+              fulfilmentType: record.fulfilmentType as string ?? existingOffer?.fulfilmentType ?? null,
+              mutationDateTime: record.mutationDateTime as Date ?? existingOffer?.mutationDateTime ?? new Date(),
+              referenceCode: record.referenceCode as string ?? existingOffer?.referenceCode ?? null,
+              correctedStock: record.correctedStock as number ?? existingOffer?.correctedStock ?? null,
             };
+
+            // Ensure numeric and boolean fields that might be null/undefined from CSV
+            // are correctly passed or defaulted before DB operation
+            offerPayload.bundlePricesPrice = offerPayload.bundlePricesPrice === undefined ? null : offerPayload.bundlePricesPrice;
+            offerPayload.stockAmount = offerPayload.stockAmount === undefined ? null : offerPayload.stockAmount;
+            offerPayload.correctedStock = offerPayload.correctedStock === undefined ? null : offerPayload.correctedStock;
+            offerPayload.onHoldByRetailer = offerPayload.onHoldByRetailer === undefined ? false : offerPayload.onHoldByRetailer;
+
 
             if (existingOffer) {
               await updateOffer(record.offerId, offerPayload);

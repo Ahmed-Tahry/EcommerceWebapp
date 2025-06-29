@@ -100,43 +100,40 @@ export const getProductContentHandler = async (req: Request, res: Response, next
   }
 };
 
-export const syncProductFromBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const userId = req.headers['x-user-id'] as string;
-    if (!userId) {
-      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
-      return;
-    }
-
-    const { ean } = req.params;
-    const language = req.query.language as string || 'nl';
-
-    console.log(`syncProductFromBolHandler: Syncing product EAN ${ean} from Bol.com (lang ${language}) to local DB for user ${userId}...`);
-    const updatedProduct = await ShopService.updateLocalProductFromBol(userId, ean, language);
-
-    if (updatedProduct) {
-      res.status(200).json({ message: `Product EAN ${ean} synced from Bol.com and updated locally for user ${userId}.`, product: updatedProduct });
-    } else {
-      // This case should ideally be handled by an error in ShopService if fetching/mapping fails
-      res.status(500).json({ message: `Failed to sync product EAN ${ean} from Bol.com.` });
-    }
-  } catch (error) {
-    console.error(`syncProductFromBolHandler: Error syncing EAN ${req.params.ean} from Bol:`, error);
-     if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
-      res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
-      return;
-    }
-    if (error instanceof Error && error.message.includes('Bol API Error')) {
-      res.status(502).json({ message: `Failed to retrieve product data from Bol.com for EAN ${req.params.ean}.`, details: error.message });
-      return;
-    }
-    if (error instanceof Error && error.message.includes('Could not fetch or map product content')) {
-        res.status(404).json({ message: error.message });
-        return;
-    }
-    next(error);
-  }
-};
+// Removed syncProductFromBolHandler as its functionality is covered by the new syncProductsNewHandler
+// export const syncProductFromBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+//   try {
+//     const userId = req.headers['x-user-id'] as string;
+//     if (!userId) {
+//       res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+//       return;
+//     }
+//     const { ean } = req.params;
+//     const language = req.query.language as string || 'nl';
+//     console.log(`syncProductFromBolHandler: Syncing product EAN ${ean} from Bol.com (lang ${language}) to local DB for user ${userId}...`);
+//     const updatedProduct = await ShopService.updateLocalProductFromBol(userId, ean, language); // This line was causing the error
+//     if (updatedProduct) {
+//       res.status(200).json({ message: `Product EAN ${ean} synced from Bol.com and updated locally for user ${userId}.`, product: updatedProduct });
+//     } else {
+//       res.status(500).json({ message: `Failed to sync product EAN ${ean} from Bol.com.` });
+//     }
+//   } catch (error) {
+//     console.error(`syncProductFromBolHandler: Error syncing EAN ${req.params.ean} from Bol:`, error);
+//      if (error instanceof Error && error.message.includes('Bol API credentials are not configured')) {
+//       res.status(503).json({ message: 'Service unavailable: Bol API credentials not configured on server.' });
+//       return;
+//     }
+//     if (error instanceof Error && error.message.includes('Bol API Error')) {
+//       res.status(502).json({ message: `Failed to retrieve product data from Bol.com for EAN ${req.params.ean}.`, details: error.message });
+//       return;
+//     }
+//     if (error instanceof Error && error.message.includes('Could not fetch or map product content')) {
+//         res.status(404).json({ message: error.message });
+//         return;
+//     }
+//     next(error);
+//   }
+// };
 
 export const syncProductToBolHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -442,6 +439,83 @@ export const deleteOrderHandler = async (req: Request, res: Response, next: Next
     next(error);
   }
 };
+
+// Controller for the new product sync logic
+export const syncProductsNewHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
+
+    // const { csvFileUrl } = req.body; // csvFileUrl is no longer used
+
+    console.log(`syncProductsNewHandler: Initiating new product synchronization for user ${userId}.`);
+
+    const result = await ShopService.syncProductsFromOffersAndRetailerApi(userId);
+
+    if (result.failed > 0 || result.errors.length > 0) {
+      res.status(207).json({ // Multi-Status
+        message: 'Product synchronization completed with some errors.',
+        processed: result.processed,
+        success: result.success,
+        failed: result.failed,
+        errors: result.errors,
+      });
+    } else {
+      res.status(200).json({
+        message: 'Product synchronization completed successfully.',
+        processed: result.processed,
+        success: result.success,
+      });
+    }
+  } catch (error) {
+    console.error('syncProductsNewHandler: Error during product synchronization:', error);
+    // Add more specific error handling if needed (e.g. Bol API errors if it were used directly here)
+    next(error);
+  }
+};
+
+// Controller to update VAT for a specific product
+export const updateProductVatHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { ean } = req.params;
+    const { vatRate } = req.body;
+
+    if (typeof vatRate !== 'number' && vatRate !== null) {
+      res.status(400).json({ message: 'Invalid vatRate provided. Must be a number or null.' });
+      return;
+    }
+
+    // Optional: Add more validation for vatRate range if needed (e.g., 0 to 100)
+    if (vatRate !== null && (vatRate < 0 || vatRate > 99.99)) {
+        res.status(400).json({ message: 'Invalid vatRate value. Must be between 0 and 99.99, or null.' });
+        return;
+    }
+
+    // User ID from header might be needed if ShopService.updateProduct requires it for auditing or other purposes.
+    // const userId = req.headers['x-user-id'] as string;
+    // if (!userId) {
+    //   res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+    //   return;
+    // }
+
+    console.log(`updateProductVatHandler: Updating VAT for EAN ${ean} to ${vatRate}`);
+
+    const updatedProduct = await ShopService.updateProduct(ean, { vatRate });
+
+    if (updatedProduct) {
+      res.status(200).json(updatedProduct);
+    } else {
+      res.status(404).json({ message: `Product with EAN ${ean} not found or no changes made.` });
+    }
+  } catch (error) {
+    console.error(`updateProductVatHandler: Error updating VAT for EAN ${req.params.ean}:`, error);
+    next(error);
+  }
+};
+
 
 // Controller functions for Offers CRUD
 
