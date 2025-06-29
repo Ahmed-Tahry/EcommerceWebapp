@@ -253,8 +253,8 @@ this.apiClient.interceptors.request.use(
 
       // Step 2: Poll for process status
       let attempts = 0;
-      const maxAttempts = 60; // e.g., 5 minutes if polling every 5 seconds
-      const pollInterval = 5000; // 5 seconds
+      const maxAttempts = 360; // e.g., 5 minutes if polling every 5 seconds
+      const pollInterval = 10000; // 5 seconds
 
       while (attempts < maxAttempts) {
         await this.delay(pollInterval);
