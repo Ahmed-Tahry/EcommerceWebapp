@@ -145,7 +145,7 @@ interface BolApiError {
 }
 
 class BolService {
-  private apiClient: AxiosInstance;
+  public apiClient: AxiosInstance;
   private clientId: string;
   private clientSecret: string;
   private accessToken: string | null = null;
