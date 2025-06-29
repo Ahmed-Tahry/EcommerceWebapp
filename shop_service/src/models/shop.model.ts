@@ -56,4 +56,5 @@ export interface IProduct {
   attributes?: Record<string, any> | null; // To store other Bol attributes like dimensions, series, etc.
   lastSyncFromBol?: Date | null; // Timestamp of the last successful sync from Bol
   lastSyncToBol?: Date | null;   // Timestamp of the last successful push to Bol
+  vatRate?: number | null; // VAT percentage for the product
 }
