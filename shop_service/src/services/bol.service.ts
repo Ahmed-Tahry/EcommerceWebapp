@@ -272,27 +272,29 @@ this.apiClient.interceptors.request.use(
         const currentStatus = statusResponse.data;
 
         if (currentStatus.status === 'SUCCESS') {
-          console.log('Offer export successful.');
-          const downloadLinkObj = currentStatus.links.find((link: ProcessStatusLink) => link.rel === 'download');
-          if (!downloadLinkObj || !downloadLinkObj.href) {
-            throw new Error('Download link not found in successful process status.');
+          console.log('Offer export process successful. Entity ID:', currentStatus.entityId);
+          if (!currentStatus.entityId) {
+            throw new Error('Entity ID (report-id) not found in successful process status.');
           }
-          const downloadLink = downloadLinkObj.href;
+          const reportId = currentStatus.entityId;
 
-          // Step 3: Download the file
-          // The download link might be for a different domain or require different headers (e.g. no auth)
-          // For now, assume it's a direct GET and might not need Bol API auth headers
-          console.log(`Downloading CSV from: ${downloadLink}`);
-          const fileResponse = await axios.get(downloadLink, {
+          // Step 3: Download the actual CSV report using the report-id
+          console.log(`Fetching CSV export content from /offers/export/${reportId}`);
+          // This request uses the main apiClient, so auth is handled.
+          // We need to specify the correct Accept header for CSV.
+          // Bol documentation for GET /retailer/offers/export/{report-id} states:
+          // Produces: application/vnd.retailer.v10+csv
+          const fileResponse = await this.apiClient.get(`/offers/export/${reportId}`, {
             responseType: 'text', // Get as plain text for CSV
-            // It's possible Bol's download links don't require the same auth/content-type headers
-            // If downloads fail, this is an area to investigate.
-            // For now, let's try without specific Bol API headers.
+            headers: {
+              // Overriding the default Accept header of the apiClient for this specific request
+              'Accept': 'application/vnd.retailer.v10+csv',
+            }
           });
-          return fileResponse.data as string;
+          return fileResponse.data as string; // This should be the CSV content
 
         } else if (currentStatus.status === 'FAILURE' || currentStatus.status === 'TIMEOUT') {
-          console.error(`Offer export failed or timed out. Status: ${currentStatus.status}, Message: ${currentStatus.errorMessage}`);
+          console.error(`Offer export process failed or timed out. Status: ${currentStatus.status}, Message: ${currentStatus.errorMessage}`);
           throw new Error(`Offer export process failed or timed out: ${currentStatus.errorMessage || 'No error message provided.'}`);
         }
         // If PENDING, continue polling
