@@ -22,9 +22,11 @@ import {
     deleteOrderItemHandler,
     // Product Content Handlers
     getProductContentHandler,
-    syncProductFromBolHandler,
+    // syncProductFromBolHandler, // Removed as redundant
     syncProductToBolHandler,
-    getBolProcessStatusHandler
+    getBolProcessStatusHandler,
+    syncProductsNewHandler, // Import the new sync handler
+    updateProductVatHandler // Import the VAT update handler
 } from '../controllers/shop.controller';
 
 const router = Router();
@@ -66,8 +68,14 @@ router.delete('/order-items/:orderItemId', deleteOrderItemHandler);
 
 // Routes for Product Content
 router.get('/products/:ean/bol', getProductContentHandler); // Get Bol product content
-router.post('/products/:ean/sync-from-bol', syncProductFromBolHandler); // Sync content from Bol to local
+// router.post('/products/:ean/sync-from-bol', syncProductFromBolHandler); // Removed as redundant
 router.post('/products/:ean/sync-to-bol', syncProductToBolHandler); // Sync local content to Bol
 router.get('/bol/process-status/:processId', getBolProcessStatusHandler); // Generic Bol process status poller
+
+// Route for the new product sync logic
+router.post('/products/sync-new', syncProductsNewHandler);
+
+// Route for manually updating VAT for a product
+router.put('/products/:ean/vat', updateProductVatHandler);
 
 export default router;
