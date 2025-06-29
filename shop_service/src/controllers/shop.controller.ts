@@ -507,6 +507,7 @@ export const deleteOrderHandler = async (req: Request, res: Response, next: Next
 //   }
 // };
 
+
 // Controller to update VAT for a specific product
 export const updateProductVatHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
