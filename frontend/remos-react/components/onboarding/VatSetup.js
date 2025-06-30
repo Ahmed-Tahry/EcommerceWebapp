@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOnboarding } from '@/contexts/OnboardingContext';
+import { callApi } from '@/utils/api';
 // Assuming Layout provides general page structure, might need adjustment if it's not suitable here
 // For now, let's assume it works or we'll simplify the JSX if Layout isn't appropriate for this component context.
 // import Layout from "@/components/layout/Layout";
@@ -9,7 +10,7 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 export default function VatSetup() {
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
 
-  // State for this component
+  // State for this com ponent
   const [products, setProducts] = useState([]);
   const [vatInputs, setVatInputs] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
@@ -25,34 +26,37 @@ export default function VatSetup() {
   const [stepCompletionError, setStepCompletionError] = useState(null);
 
 
-  const fetchProducts = useCallback(async (page = 1) => {
-    setComponentLoading(true);
-    setComponentError(null);
-    try {
-      const response = await fetch(`/api/shop/products?page=${page}&limit=${itemsPerPage}`);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({})); // Catch if response isn't valid JSON
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setProducts(data.products || []);
-      setTotalPages(Math.ceil((data.total || 0) / itemsPerPage));
-      setCurrentPage(data.page || 1);
+const fetchProducts = useCallback(async (page = 1) => {
+  setComponentLoading(true);
+  setComponentError(null);
+  try {
+    const response = await callApi(
+      `/shop/api/shop/products?page=${page}&limit=${itemsPerPage}`,
+      'GET'
+    );
+    console.log(response);
 
-      const initialVatInputs = {};
-      (data.products || []).forEach(product => {
-        initialVatInputs[product.ean] = product.vatRate !== null && product.vatRate !== undefined ? String(product.vatRate) : '';
-      });
-      setVatInputs(prev => ({ ...prev, ...initialVatInputs })); // Merge to preserve inputs on other pages
+    // You no longer need to call response.json() or check response.ok
+    setProducts(response.products || []);
+    setTotalPages(Math.ceil((response.total || 0) / itemsPerPage));
+    setCurrentPage(response.page || 1);
 
-    } catch (e) {
-      console.error("Failed to fetch products:", e);
-      setComponentError(e.message);
-      setProducts([]);
-    } finally {
-      setComponentLoading(false);
-    }
-  }, [itemsPerPage]);
+    const initialVatInputs = {};
+    (response.products || []).forEach(product => {
+      initialVatInputs[product.ean] =
+        product.vatRate !== null && product.vatRate !== undefined
+          ? String(product.vatRate)
+          : '';
+    });
+    setVatInputs(prev => ({ ...prev, ...initialVatInputs }));
+  } catch (e) {
+    console.error('Failed to fetch products:', e);
+    setComponentError(e.message);
+    setProducts([]);
+  } finally {
+    setComponentLoading(false);
+  }
+}, [itemsPerPage]);
 
   useEffect(() => {
     if (!(onboardingStatus && onboardingStatus.hasCompletedVatSetup)) {
@@ -64,47 +68,49 @@ export default function VatSetup() {
     setVatInputs(prev => ({ ...prev, [ean]: value }));
   };
 
-  const handleUpdateVat = async (ean) => {
-    setUpdateInProgress(prev => ({...prev, [ean]: true}));
-    const rawValue = vatInputs[ean];
-    let vatRateToUpdate = null;
+const handleUpdateVat = async (ean) => {
+  setUpdateInProgress(prev => ({ ...prev, [ean]: true }));
 
-    if (rawValue.trim() !== '') {
-      const parsedValue = parseFloat(rawValue);
-      if (isNaN(parsedValue) || parsedValue < 0 || parsedValue > 99.99) {
-        alert('Invalid VAT rate. Must be a number between 0.00 and 99.99, or empty for no VAT.');
-        setUpdateInProgress(prev => ({...prev, [ean]: false}));
-        return;
-      }
-      vatRateToUpdate = parsedValue;
+  const rawValue = vatInputs[ean];
+  let vatRateToUpdate = null;
+
+  if (rawValue.trim() !== '') {
+    const parsedValue = parseFloat(rawValue);
+    if (isNaN(parsedValue) || parsedValue < 0 || parsedValue > 99.99) {
+      alert('Invalid VAT rate. Must be a number between 0.00 and 99.99, or empty for no VAT.');
+      setUpdateInProgress(prev => ({ ...prev, [ean]: false }));
+      return;
+    }
+    vatRateToUpdate = parsedValue;
+  }
+
+  try {
+    const response = await callApi(
+      `/shop/api/shop/products/${ean}/vat`,
+      'PUT',
+      { vatRate: vatRateToUpdate }
+    );
+
+    // If callApi returns an error format, you may need to check manually
+    if (response.error || response.status === 'error') {
+      throw new Error(response.message || 'Unknown error updating VAT.');
     }
 
-    try {
-      const response = await fetch(`/api/shop/products/${ean}/vat`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vatRate: vatRateToUpdate }),
-      });
+    // Update local state to reflect the change
+    setProducts(prevProducts =>
+      prevProducts.map(p =>
+        p.ean === ean ? { ...p, vatRate: vatRateToUpdate } : p
+      )
+    );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Failed to update VAT and parse error response."}));
-        throw new Error(errorData.message || `Failed to update VAT. Status: ${response.status}`);
-      }
+  } catch (e) {
+    console.error(`Failed to update VAT for EAN ${ean}:`, e);
+    alert(`Error updating VAT for EAN ${ean}: ${e.message}`);
+  } finally {
+    setUpdateInProgress(prev => ({ ...prev, [ean]: false }));
+  }
+};
 
-      // Update local state to reflect the change
-      setProducts(prevProducts =>
-        prevProducts.map(p =>
-          p.ean === ean ? { ...p, vatRate: vatRateToUpdate } : p
-        )
-      );
-      // No alert on success for smoother UX, change is reflected in input and "Current VAT"
-    } catch (e) {
-      console.error("Failed to update VAT for EAN " + ean + ":", e);
-      alert(`Error updating VAT for EAN ${ean}: ${e.message}`); // Simple alert for now
-    } finally {
-        setUpdateInProgress(prev => ({...prev, [ean]: false}));
-    }
-  };
 
   const handlePrevPage = () => {
     setCurrentPage(prev => Math.max(1, prev - 1));
