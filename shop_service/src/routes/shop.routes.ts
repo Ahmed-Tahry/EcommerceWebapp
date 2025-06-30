@@ -26,7 +26,6 @@ import {
     syncProductToBolHandler,
     getBolProcessStatusHandler,
     // syncProductsNewHandler, // Commented out as it's now triggered by exportOffersHandler
-
     updateProductVatHandler // Import the VAT update handler
 } from '../controllers/shop.controller';
 
@@ -75,7 +74,6 @@ router.get('/bol/process-status/:processId', getBolProcessStatusHandler); // Gen
 
 // Route for the new product sync logic
 // router.post('/products/sync-new', syncProductsNewHandler); // Commented out as it's now triggered by exportOffersHandler
-
 
 // Route for manually updating VAT for a product
 router.put('/products/:ean/vat', updateProductVatHandler);
