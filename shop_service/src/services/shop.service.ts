@@ -48,7 +48,16 @@ export async function createOffer(offerData: IOffer): Promise<IOffer> {
 // Assuming IProduct is defined in ../models/shop.model.ts
 import { IProduct } from '../models/shop.model';
 // Import ProcessStatus correctly, and other types from bol.service
-import BolService, { BolProductContent, BolCreateProductContentPayload, BolCreateProductAttribute, BolProductAttribute, ProcessStatus } from './bol.service';
+import BolService, {
+  BolProductContent, // This might become less relevant if /content/products/{ean} is not used by new sync
+  BolCreateProductContentPayload,
+  BolCreateProductAttribute,
+  BolProductAttribute, // Existing, for /content/products/{ean}
+  ProcessStatus,
+  BolCatalogProductResponse, // New
+  BolProductAssetsResponse,   // New
+  BolAssetVariant             // New
+} from './bol.service';
 
 
 export async function createProduct(productData: IProduct): Promise<IProduct> {
@@ -257,57 +266,131 @@ export async function pollBolProcessStatus(userId: string, processId: string, ma
 
 // --- New Product Sync Logic ---
 
-// Fetches product details from the Bol.com Retailer API endpoint /retailer/products/{ean}
-// Note: The BolProductContent interface is based on /content/products/{ean}.
-// The actual /retailer/products/{ean} might have a different structure.
-// This function assumes it's similar enough or that relevant fields (title, brand, description) are present.
 async function _fetchRetailerProductDetails(ean: string, bolService: BolService, language: string = 'nl'): Promise<Partial<IProduct> | null> {
-  console.log(`_fetchRetailerProductDetails: Fetching from /retailer/products/${ean} for language ${language}`);
-  try {
-    // We're re-using BolProductContent for the expected response type.
-    // If /retailer/products/{ean} has a different structure, a new interface would be needed.
-    // The BolService's apiClient will use its default headers (Accept, Content-Type for v10).
-    // The `fetchProductContent` method in BolService uses `/content/products/{ean}`.
-    // We are targeting `/retailer/products/{ean}` as per the task.
-    // We'll make a direct call using the apiClient from the BolService instance.
+  const productDetails: Partial<IProduct> = { ean };
+  let catalogDataFound = false;
 
-    // IMPORTANT ASSUMPTION: The '/retailer/products/{ean}' endpoint exists and returns data
-    // similar in structure to '/content/products/{ean}' or at least containing common product fields.
-    // If not, this mapping will fail or be incomplete.
-    // The BolService apiClient is configured for 'https://api.bol.com/retailer-demo'
-    const response = await bolService.apiClient.get<BolProductContent>(`/retailer/products/${ean}`, {
-        params: { language },
-         // apiClient should automatically add Auth header via interceptor
+  // Step 1: Fetch from /retailer/catalog-products/{ean}
+  try {
+    console.log(`_fetchRetailerProductDetails: Fetching from /retailer/catalog-products/${ean} for lang ${language}`);
+    const catalogResponse = await bolService.apiClient.get<BolCatalogProductResponse>(`/retailer/catalog-products/${ean}`, {
+      params: { language },
+      headers: { 'Accept': 'application/vnd.retailer.v10+json' } // Explicitly set, though BolService default might be same
     });
 
-    if (response.data) {
-      // Use a mapping function similar to mapBolProductContentToLocal,
-      // but tailored if the structure of /retailer/products/{ean} is different.
-      // For now, let's assume mapBolProductContentToLocal is adaptable or the structure is similar.
-      const mappedData = mapBolProductContentToLocal(response.data); // Reuses existing mapping
-      console.log(`_fetchRetailerProductDetails: Successfully fetched and mapped data for EAN ${ean}.`);
-      return mappedData;
+    if (catalogResponse.data && catalogResponse.data.attributes) {
+      catalogDataFound = true;
+      const attributes = catalogResponse.data.attributes;
+
+      const titleAttr = attributes.find(attr => attr.id === 'Title');
+      if (titleAttr && titleAttr.values.length > 0) {
+        productDetails.title = String(titleAttr.values[0].value);
+      }
+
+      const descAttr = attributes.find(attr => attr.id === 'Description');
+      if (descAttr && descAttr.values.length > 0) {
+        productDetails.description = String(descAttr.values[0].value);
+      }
+
+      // Extract Brand from parties array
+      if (catalogResponse.data.parties) {
+        const brandParty = catalogResponse.data.parties.find(party => party.role === 'BRAND');
+        if (brandParty) {
+          productDetails.brand = brandParty.name;
+        }
+      }
+
+      // Store all other attributes in the attributes field
+      const otherAttributes: Record<string, any> = {};
+      attributes.forEach(attr => {
+        if (attr.id !== 'Title' && attr.id !== 'Description' && attr.values.length > 0) {
+          // Simplified: takes the first value. Could be expanded to handle multiple values or unitIds.
+          otherAttributes[attr.id] = attr.values[0].value;
+        }
+      });
+      if (Object.keys(otherAttributes).length > 0) {
+        productDetails.attributes = otherAttributes;
+      }
+
+      console.log(`_fetchRetailerProductDetails: Successfully fetched catalog data for EAN ${ean}. Title: ${productDetails.title}`);
+    } else {
+      console.warn(`_fetchRetailerProductDetails: No attributes found in catalog response for EAN ${ean}.`);
     }
-    return null;
   } catch (error: any) {
     const axiosError = error as AxiosError<any>;
     if (axiosError.isAxiosError && axiosError.response && axiosError.response.status === 404) {
-      console.warn(`_fetchRetailerProductDetails: Product with EAN ${ean} not found at /retailer/products/${ean}.`);
-      return null;
+      console.warn(`_fetchRetailerProductDetails: Product EAN ${ean} not found at /retailer/catalog-products.`);
+      return null; // If catalog product doesn't exist, no point fetching assets.
     }
-    // Log other errors but don't let one failed EAN stop the whole batch.
-    // The BolService's handleApiError throws, so we might not reach here if it's used directly by bolService.apiClient.get
-    // However, direct axios calls might not use it unless we explicitly call it.
-    // The interceptor in BolService should handle auth, but other errors might pass through.
-    console.error(`_fetchRetailerProductDetails: Error fetching product details for EAN ${ean} from /retailer/products API:`, axiosError.message);
+    console.error(`_fetchRetailerProductDetails: Error fetching catalog details for EAN ${ean}:`, axiosError.message);
+    // Log more details if available
     if (axiosError.response) {
-        console.error('Response data:', axiosError.response.data);
-        console.error('Response status:', axiosError.response.status);
+        console.error('Catalog API Error Response data:', axiosError.response.data);
+        console.error('Catalog API Error Response status:', axiosError.response.status);
     }
-    // We return null to allow the sync process to continue with other EANs.
-    // The error will be logged in the main sync function's summary.
-    throw new Error(`Failed to fetch retailer details for EAN ${ean}: ${axiosError.message}`);
+    throw new Error(`Failed to fetch catalog details for EAN ${ean}: ${axiosError.message}`);
   }
+
+  // If no title was found from catalog-products, we might not proceed or have a product to update meaningfully.
+  // However, the requirement is to get name and image. If name isn't there, image might also be irrelevant.
+  // For now, proceed to fetch image if catalog data was found, even if title is missing (it will be null).
+  if (!catalogDataFound) { // Or more strictly: if (!productDetails.title)
+    console.warn(`_fetchRetailerProductDetails: No catalog data found for EAN ${ean}, skipping asset fetch.`);
+    // If we return null, the product won't be created/updated with just an EAN.
+    // If we return productDetails, it might be an EAN-only object if nothing was found.
+    // Let's return null if no catalog data at all, otherwise proceed.
+    return Object.keys(productDetails).length > 1 ? productDetails : null;
+  }
+
+  // Step 2: Fetch from /retailer/products/{ean}/assets?usage=PRIMARY
+  try {
+    console.log(`_fetchRetailerProductDetails: Fetching assets for EAN ${ean}`);
+    const assetsResponse = await bolService.apiClient.get<BolProductAssetsResponse>(`/retailer/products/${ean}/assets`, {
+      params: { usage: 'PRIMARY' },
+      headers: { 'Accept': 'application/vnd.retailer.v10+json' }
+    });
+
+    if (assetsResponse.data && assetsResponse.data.assets && assetsResponse.data.assets.length > 0) {
+      const primaryAsset = assetsResponse.data.assets[0]; // Assuming the first one is what we need
+      if (primaryAsset.variants && primaryAsset.variants.length > 0) {
+        let imageUrl: string | undefined;
+        const mediumVariant = primaryAsset.variants.find(v => v.size === 'medium');
+        const largeVariant = primaryAsset.variants.find(v => v.size === 'large');
+
+        if (mediumVariant) {
+          imageUrl = mediumVariant.url;
+        } else if (largeVariant) {
+          imageUrl = largeVariant.url;
+        } else {
+          imageUrl = primaryAsset.variants[0].url; // Fallback to the first variant
+        }
+        productDetails.mainImageUrl = imageUrl;
+        console.log(`_fetchRetailerProductDetails: Successfully fetched image URL for EAN ${ean}: ${imageUrl}`);
+      } else {
+        console.warn(`_fetchRetailerProductDetails: No variants found in primary asset for EAN ${ean}.`);
+      }
+    } else {
+      console.warn(`_fetchRetailerProductDetails: No primary assets found for EAN ${ean}.`);
+    }
+  } catch (error: any) {
+    const axiosError = error as AxiosError<any>;
+     if (axiosError.isAxiosError && axiosError.response && axiosError.response.status === 404) {
+      console.warn(`_fetchRetailerProductDetails: Assets not found for EAN ${ean}.`);
+      // Don't nullify productDetails if catalog info was already fetched.
+    } else {
+      console.error(`_fetchRetailerProductDetails: Error fetching assets for EAN ${ean}:`, axiosError.message);
+      if (axiosError.response) {
+        console.error('Assets API Error Response data:', axiosError.response.data);
+        console.error('Assets API Error Response status:', axiosError.response.status);
+      }
+      // Not throwing here to allow product creation even if image fetch fails, but log it.
+      // The error will be part of the main sync summary if this throw is re-enabled:
+      // throw new Error(`Failed to fetch assets for EAN ${ean}: ${axiosError.message}`);
+    }
+  }
+
+  // Return productDetails if it has more than just EAN, otherwise null
+  return Object.keys(productDetails).length > 1 ? productDetails : null;
 }
 
 export async function syncProductsFromOffersAndRetailerApi(userId: string): Promise<{ processed: number; success: number; failed: number; errors: string[] }> {

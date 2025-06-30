@@ -69,7 +69,54 @@ export interface BolOrderItem {
 }
 
 // --- Interfaces for Product Content ---
-// Based on GET /retailer/content/products/{ean} response
+
+// For GET /retailer/catalog-products/{ean}
+export interface BolCatalogAttributeValue {
+  value: string | number | boolean;
+  valueId?: string; // As seen in example
+  unitId?: string;
+}
+export interface BolCatalogAttribute {
+  id: string;
+  values: BolCatalogAttributeValue[];
+}
+export interface BolCatalogParty {
+  name: string;
+  type: string; // e.g., "Brand"
+  role: string; // e.g., "BRAND"
+}
+export interface BolCatalogSeries {
+    name: string;
+}
+export interface BolCatalogProductResponse {
+  published?: boolean;
+  gpc?: { chunkId?: string };
+  enrichment?: { status?: number };
+  attributes: BolCatalogAttribute[];
+  parties?: BolCatalogParty[];
+  series?: BolCatalogSeries[];
+  // Add other top-level fields from the catalog-products response if needed
+}
+
+// For GET /retailer/products/{ean}/assets?usage=PRIMARY
+export interface BolAssetVariant {
+  size: string; // e.g., "small", "medium"
+  width?: number;
+  height?: number;
+  mimeType: string; // e.g., "image/jpeg"
+  url: string;
+}
+export interface BolPrimaryProductAsset {
+  usage: 'PRIMARY';
+  order?: number;
+  variants: BolAssetVariant[];
+}
+export interface BolProductAssetsResponse {
+  assets: BolPrimaryProductAsset[];
+}
+
+
+// Based on GET /retailer/content/products/{ean} response (existing, potentially for getBolProductContent)
 export interface BolProductAttributeValue {
   value: string | number | boolean;
   unitId?: string;
