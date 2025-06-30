@@ -18,6 +18,28 @@ export const getShopInfo = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
+export const getAllProductsHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 10;
+
+    if (page < 1) {
+      res.status(400).json({ message: 'Page number must be 1 or greater.' });
+      return;
+    }
+    if (limit < 1 || limit > 100) { // Example: Max limit of 100
+      res.status(400).json({ message: 'Limit must be between 1 and 100.' });
+      return;
+    }
+
+    const result = await ShopService.getAllProducts(page, limit);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('getAllProductsHandler: Error fetching products:', error);
+    next(error);
+  }
+};
+
 // Handler for synchronizing orders from Bol.com
 export const syncBolOrdersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {

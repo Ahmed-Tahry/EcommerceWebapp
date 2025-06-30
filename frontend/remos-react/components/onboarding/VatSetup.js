@@ -1,27 +1,135 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useOnboarding } from '@/contexts/OnboardingContext';
+// Assuming Layout provides general page structure, might need adjustment if it's not suitable here
+// For now, let's assume it works or we'll simplify the JSX if Layout isn't appropriate for this component context.
+// import Layout from "@/components/layout/Layout";
 
 export default function VatSetup() {
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
 
-  const handleCompleteVatSetupStep = async () => {
-    setIsLoading(true);
-    setError(null);
+  // State for this component
+  const [products, setProducts] = useState([]);
+  const [vatInputs, setVatInputs] = useState({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [itemsPerPage] = useState(10); // Configurable items per page
+
+  const [componentLoading, setComponentLoading] = useState(true); // For fetching products
+  const [componentError, setComponentError] = useState(null);    // For fetching products error
+  const [updateInProgress, setUpdateInProgress] = useState({}); // To track loading state per product update
+
+  // State for the onboarding step completion
+  const [isStepCompletionLoading, setIsStepCompletionLoading] = useState(false);
+  const [stepCompletionError, setStepCompletionError] = useState(null);
+
+
+  const fetchProducts = useCallback(async (page = 1) => {
+    setComponentLoading(true);
+    setComponentError(null);
     try {
-      await markStepAsComplete('hasCompletedVatSetup');
-    } catch (err) {
-      console.error('Failed to mark VAT setup as complete:', err);
-      const errorMessage = (err && err.message) ? err.message : String(err);
-      setError(errorMessage || 'Failed to save progress.');
+      const response = await fetch(`/api/shop/products?page=${page}&limit=${itemsPerPage}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({})); // Catch if response isn't valid JSON
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setProducts(data.products || []);
+      setTotalPages(Math.ceil((data.total || 0) / itemsPerPage));
+      setCurrentPage(data.page || 1);
+
+      const initialVatInputs = {};
+      (data.products || []).forEach(product => {
+        initialVatInputs[product.ean] = product.vatRate !== null && product.vatRate !== undefined ? String(product.vatRate) : '';
+      });
+      setVatInputs(prev => ({ ...prev, ...initialVatInputs })); // Merge to preserve inputs on other pages
+
+    } catch (e) {
+      console.error("Failed to fetch products:", e);
+      setComponentError(e.message);
+      setProducts([]);
     } finally {
-      setIsLoading(false);
+      setComponentLoading(false);
+    }
+  }, [itemsPerPage]);
+
+  useEffect(() => {
+    if (!(onboardingStatus && onboardingStatus.hasCompletedVatSetup)) {
+        fetchProducts(currentPage);
+    }
+  }, [fetchProducts, currentPage, onboardingStatus]);
+
+  const handleVatInputChange = (ean, value) => {
+    setVatInputs(prev => ({ ...prev, [ean]: value }));
+  };
+
+  const handleUpdateVat = async (ean) => {
+    setUpdateInProgress(prev => ({...prev, [ean]: true}));
+    const rawValue = vatInputs[ean];
+    let vatRateToUpdate = null;
+
+    if (rawValue.trim() !== '') {
+      const parsedValue = parseFloat(rawValue);
+      if (isNaN(parsedValue) || parsedValue < 0 || parsedValue > 99.99) {
+        alert('Invalid VAT rate. Must be a number between 0.00 and 99.99, or empty for no VAT.');
+        setUpdateInProgress(prev => ({...prev, [ean]: false}));
+        return;
+      }
+      vatRateToUpdate = parsedValue;
+    }
+
+    try {
+      const response = await fetch(`/api/shop/products/${ean}/vat`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vatRate: vatRateToUpdate }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Failed to update VAT and parse error response."}));
+        throw new Error(errorData.message || `Failed to update VAT. Status: ${response.status}`);
+      }
+
+      // Update local state to reflect the change
+      setProducts(prevProducts =>
+        prevProducts.map(p =>
+          p.ean === ean ? { ...p, vatRate: vatRateToUpdate } : p
+        )
+      );
+      // No alert on success for smoother UX, change is reflected in input and "Current VAT"
+    } catch (e) {
+      console.error("Failed to update VAT for EAN " + ean + ":", e);
+      alert(`Error updating VAT for EAN ${ean}: ${e.message}`); // Simple alert for now
+    } finally {
+        setUpdateInProgress(prev => ({...prev, [ean]: false}));
     }
   };
 
+  const handlePrevPage = () => {
+    setCurrentPage(prev => Math.max(1, prev - 1));
+  };
+
+  const handleNextPage = () => {
+    setCurrentPage(prev => Math.min(totalPages, prev + 1));
+  };
+
+  const handleCompleteVatSetupStep = async () => {
+    setIsStepCompletionLoading(true);
+    setStepCompletionError(null);
+    try {
+      await markStepAsComplete('hasCompletedVatSetup');
+      // Optionally re-fetch products or clear list if needed after step completion
+    } catch (err) {
+      console.error('Failed to mark VAT setup as complete:', err);
+      const errorMessage = (err && err.message) ? err.message : String(err);
+      setStepCompletionError(errorMessage || 'Failed to save progress.');
+    } finally {
+      setIsStepCompletionLoading(false);
+    }
+  };
+
+  // If step is already complete, show completion message
   if (onboardingStatus && onboardingStatus.hasCompletedVatSetup) {
     return (
       <div className="p-6 bg-white border border-gray-200 rounded-lg shadow-md wg-box">
@@ -31,25 +139,93 @@ export default function VatSetup() {
     );
   }
 
+  // Main content for VAT setup
   return (
     <div className="p-6 bg-white border border-gray-200 rounded-lg shadow-md wg-box">
-      <h2 className="text-xl font-semibold text-gray-700 mb-4">Step 3: Configure VAT Settings</h2>
-      <p className="text-gray-600 mb-3">
-        Ensure your product VAT (Value Added Tax) rates are correctly configured in the system.
-        You can manage detailed VAT settings in the main application settings area.
-      </p>
+      <h2 className="text-xl font-semibold text-gray-700 mb-4">Step 3: Configure Product VAT Settings</h2>
       <p className="text-gray-600 mb-6">
-        For the purpose of this onboarding, please confirm once you have reviewed and set up your VAT configurations.
+        Review and set the VAT (Value Added Tax) rates for your products. This can also be managed later in the main application settings.
       </p>
 
-      {error && <div className="p-3 mb-4 bg-red-100 border border-red-300 text-red-700 rounded-md">{error}</div>}
+      {componentLoading && <p>Loading products...</p>}
+      {componentError && <div className="p-3 mb-4 bg-red-100 border border-red-300 text-red-700 rounded-md">Error loading products: {componentError}</div>}
+
+      {!componentLoading && !componentError && products.length === 0 && (
+        <p className="text-gray-600 mb-6">No products found to configure. You can proceed or add products first.</p>
+      )}
+
+      {!componentLoading && !componentError && products.length > 0 && (
+        <div className="table-responsive mb-6" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+          <table className="table table-striped w-full text-sm">
+            <thead className="sticky top-0 bg-gray-100">
+              <tr>
+                <th className="p-2 border">EAN</th>
+                <th className="p-2 border">Title</th>
+                <th className="p-2 border">Current VAT (%)</th>
+                <th className="p-2 border w-1/4">Set VAT (%)</th>
+                <th className="p-2 border">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((product) => (
+                <tr key={product.ean}>
+                  <td className="p-2 border">{product.ean}</td>
+                  <td className="p-2 border">{product.title || 'N/A'}</td>
+                  <td className="p-2 border">{product.vatRate !== null && product.vatRate !== undefined ? `${parseFloat(product.vatRate).toFixed(2)}%` : 'N/A'}</td>
+                  <td className="p-2 border">
+                    <input
+                      type="number"
+                      className="form-control form-control-sm w-full px-2 py-1 border rounded-md"
+                      value={vatInputs[product.ean] || ''}
+                      onChange={(e) => handleVatInputChange(product.ean, e.target.value)}
+                      placeholder="e.g., 21.00"
+                      min="0"
+                      max="99.99"
+                      step="0.01"
+                      disabled={updateInProgress[product.ean]}
+                    />
+                  </td>
+                  <td className="p-2 border">
+                    <button
+                      className="tf-button-primary btn-sm px-3 py-1" // Assuming tf-button-primary exists or use standard btn classes
+                      onClick={() => handleUpdateVat(product.ean)}
+                      disabled={updateInProgress[product.ean]}
+                    >
+                      {updateInProgress[product.ean] ? 'Saving...' : 'Update'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {!componentLoading && !componentError && products.length > 0 && totalPages > 1 && (
+        <nav className="mt-4 mb-6">
+          <ul className="pagination justify-content-center">
+            <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+              <button className="page-link px-3 py-1 border rounded-l-md" onClick={handlePrevPage}>Previous</button>
+            </li>
+            <li className="page-item disabled">
+              <span className="page-link px-3 py-1 border-t border-b">Page {currentPage} of {totalPages}</span>
+            </li>
+            <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+              <button className="page-link px-3 py-1 border rounded-r-md" onClick={handleNextPage}>Next</button>
+            </li>
+          </ul>
+        </nav>
+      )}
+
+      {stepCompletionError && <div className="p-3 mb-4 bg-red-100 border border-red-300 text-red-700 rounded-md">{stepCompletionError}</div>}
 
       <button
         onClick={handleCompleteVatSetupStep}
-        className="tf-button w-full sm:w-auto"
-        disabled={isLoading || (onboardingStatus && onboardingStatus.hasCompletedVatSetup)}
+        className="tf-button w-full sm:w-auto" // Assuming tf-button is a global style
+        disabled={isStepCompletionLoading || (onboardingStatus && onboardingStatus.hasCompletedVatSetup)}
       >
-        {isLoading ? 'Saving...' : 'Mark VAT Setup as Complete'}
+        {isStepCompletionLoading ? 'Saving...' : 'Mark This Step as Complete & Continue'}
       </button>
     </div>
   );
