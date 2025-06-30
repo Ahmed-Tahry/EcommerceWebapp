@@ -223,18 +223,20 @@ export const exportOffersHandler = async (req: Request, res: Response, next: Nex
     if (offerExportResult.errorCount && offerExportResult.errorCount > 0) {
       // If offer export itself had critical errors or saved no offers,
       // respond immediately without attempting product sync.
-      return res.status(207).json({
+       res.status(207).json({
         message: "Offer export completed with errors, product sync not initiated.",
         offerExport: offerExportResult
       });
+      return ;
     }
 
     if (offerExportResult.successCount === 0) {
       // If no offers were successfully saved, no EANs to process for products.
-       return res.status(200).json({
+        res.status(200).json({
         message: "No offers were successfully exported or saved. Product sync not initiated.",
         offerExport: offerExportResult
       });
+      return ;
     }
 
     // If offer export was successful (or partially successful with some offers saved), proceed to product sync.
