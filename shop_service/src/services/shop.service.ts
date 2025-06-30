@@ -394,6 +394,49 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
   return Object.keys(productDetails).length > 1 ? productDetails : null;
 }
 
+export async function getAllProducts(page: number = 1, limit: number = 10): Promise<{ products: IProduct[], total: number, page: number, limit: number }> {
+  const pool = getDBPool();
+  const offset = (page - 1) * limit;
+
+  try {
+    // Query for the total count of products
+    const totalResult = await pool.query('SELECT COUNT(*) FROM products;');
+    const total = parseInt(totalResult.rows[0].count, 10);
+
+    // Query for the paginated products
+    const productsQuery = `
+      SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate"
+      FROM products
+      ORDER BY title ASC NULLS LAST, ean ASC -- Added a default sort order
+      LIMIT $1 OFFSET $2;
+    `;
+    const productsResult = await pool.query(productsQuery, [limit, offset]);
+
+    const products: IProduct[] = productsResult.rows.map(p => {
+      // Ensure attributes are parsed if stored as JSON string
+      if (p.attributes && typeof p.attributes === 'string') {
+        try {
+          p.attributes = JSON.parse(p.attributes);
+        } catch (e) {
+          console.error(`Error parsing attributes for EAN ${p.ean}:`, e);
+          p.attributes = null; // Or some error state
+        }
+      }
+      return p as IProduct;
+    });
+
+    return {
+      products,
+      total,
+      page,
+      limit,
+    };
+  } catch (error) {
+    console.error('Error fetching all products with pagination:', error);
+    throw error;
+  }
+}
+
 export async function syncProductsFromOffersAndRetailerApi(userId: string): Promise<{ processed: number; success: number; failed: number; errors: string[] }> {
   let eansToProcess: string[] = [];
   const summary = { processed: 0, success: 0, failed: 0, errors: [] as string[] };
