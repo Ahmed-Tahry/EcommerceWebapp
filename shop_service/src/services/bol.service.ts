@@ -212,6 +212,7 @@ class BolService {
 
 this.apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> => {
+    console.log('am getting called here');
     config.headers = config.headers ?? {};
     if (!this.isTokenValid()) {
       await this.authenticate();
@@ -235,6 +236,7 @@ this.apiClient.interceptors.request.use(
         },
       });
 
+      
       const params = new URLSearchParams();
       params.append('client_id', this.clientId);
       params.append('client_secret', this.clientSecret);

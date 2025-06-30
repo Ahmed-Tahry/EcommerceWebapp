@@ -272,10 +272,11 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
 
   // Step 1: Fetch from /retailer/catalog-products/{ean}
   try {
-    console.log(`_fetchRetailerProductDetails: Fetching from /retailer/catalog-products/${ean} for lang ${language}`);
-    const catalogResponse = await bolService.apiClient.get<BolCatalogProductResponse>(`/retailer/catalog-products/${ean}`, {
-      params: { language },
-      headers: { 'Accept': 'application/vnd.retailer.v10+json' } // Explicitly set, though BolService default might be same
+    console.log(`_fetchRetailerProductDetails: Fetching from /content/catalog-products/:ean/${ean} for lang ${language}`);
+    const catalogResponse = await bolService.apiClient.get<BolCatalogProductResponse>(`/content/catalog-products/${ean}`, {
+      headers: { 'Accept': 'application/vnd.retailer.v10+json',
+        'Accept-Language':'nl'
+       } // Explicitly set, though BolService default might be same
     });
 
     if (catalogResponse.data && catalogResponse.data.attributes) {
@@ -345,7 +346,7 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
   // Step 2: Fetch from /retailer/products/{ean}/assets?usage=PRIMARY
   try {
     console.log(`_fetchRetailerProductDetails: Fetching assets for EAN ${ean}`);
-    const assetsResponse = await bolService.apiClient.get<BolProductAssetsResponse>(`/retailer/products/${ean}/assets`, {
+    const assetsResponse = await bolService.apiClient.get<BolProductAssetsResponse>(`/products/${ean}/assets`, {
       params: { usage: 'PRIMARY' },
       headers: { 'Accept': 'application/vnd.retailer.v10+json' }
     });
@@ -453,6 +454,7 @@ export async function syncProductsFromOffersAndRetailerApi(userId: string): Prom
         productData = { ...productData, ...retailerDetails };
         // Assuming data from this endpoint implies a sync from Bol, so set lastSyncFromBol
         productData.lastSyncFromBol = new Date();
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } else {
         console.warn(`No details found from Bol.com retailer API for EAN ${ean}. Product will be created/updated with minimal info.`);
       }
