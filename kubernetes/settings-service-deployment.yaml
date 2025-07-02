@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: settings-service
+  labels:
+    app: settings-service
+spec:
+  replicas: 2 # Start with 2 replicas, adjust as needed
+  selector:
+    matchLabels:
+      app: settings-service
+  template:
+    metadata:
+      labels:
+        app: settings-service
+    spec:
+      # Consider an init container here or a separate Kubernetes Job
+      # to run database migrations (e.g., npm run migrate) before the main app starts.
+      # Similar to shop-service, if migrations are needed.
+      # initContainers:
+      # - name: db-migration
+      #   image: <acr_name>.azurecr.io/settings-service:<tag>
+      #   command: ['npm', 'run', 'migrate'] # Or your specific migration command
+      #   env:
+      #     - name: NODE_ENV
+      #       value: "production"
+      #     - name: DB_HOST
+      #       value: "postgres-db-keycloak-svc"
+      #     - name: DB_PORT
+      #       value: "5432"
+      #     - name: DB_USER
+      #       valueFrom:
+      #         secretKeyRef:
+      #           name: app-secrets
+      #           key: db_user
+      #     - name: DB_PASSWORD
+      #       valueFrom:
+      #         secretKeyRef:
+      #           name: app-secrets
+      #           key: db_password
+      #     - name: DB_NAME
+      #       value: "SettingsDb" # As per settings_service/README.md (via docker-compose)
+      containers:
+        - name: settings-service
+          image: <acr_name>.azurecr.io/settings-service:<tag> # Placeholder for ACR image
+          ports:
+            - containerPort: 3000 # Matches Dockerfile EXPOSE and app's listening port
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT # The app inside the container listens on this port
+              value: "3000"
+            - name: DB_HOST
+              value: "postgres-db-keycloak-svc" # Points to the PostgreSQL service
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db_user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db_password
+            - name: DB_NAME
+              value: "SettingsDb" # From docker-compose for settings_service
+            # Add any other necessary environment variables
+          readinessProbe:
+            httpGet:
+              path: / # Assuming a root health check or readiness endpoint exists
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: / # Assuming a root health check or liveness endpoint exists
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

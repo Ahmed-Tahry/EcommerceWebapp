@@ -30,4 +30,4 @@ COPY --from=builder /usr/src/app/package*.json ./
 EXPOSE 3000
 
 # Command to run the application
-CMD ["npm", "run", "dev"]
+CMD ["npm", "start"]

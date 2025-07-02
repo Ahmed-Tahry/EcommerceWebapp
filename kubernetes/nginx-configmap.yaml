@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        lua_package_path "/usr/local/openresty/lualib/?.lua;;";
+        # resolver 127.0.0.11; # Removed for Kubernetes
+        lua_shared_dict openidc_cache 10m;
+
+        # Upstream services will be resolved by Kubernetes DNS
+        # No explicit upstream blocks needed if using service names directly in proxy_pass
+
+        server {
+            listen 80;
+            server_name _; # Listens on all hostnames, Ingress will filter
+
+            # If serving frontend static files via Nginx, add location block here:
+            # location / {
+            #   root /usr/share/nginx/html; # Or wherever frontend files are
+            #   try_files $uri $uri/ /index.html;
+            # }
+
+            location /health {
+                add_header 'Access-Control-Allow-Origin' '*';
+                return 200 "OK";
+            }
+
+            # ============================
+            # SETTINGS SERVICE
+            # ============================
+            location /api/settings/ {
+                # CORS Preflight
+                if ($request_method = 'OPTIONS') {
+                    add_header 'Access-Control-Allow-Origin' '*'; # Consider restricting in production
+                    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS';
+                    add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
+                    add_header 'Access-Control-Max-Age' 1728000;
+                    add_header 'Content-Length' 0;
+                    add_header 'Content-Type' 'text/plain charset=UTF-8';
+                    return 204;
+                }
+
+                access_by_lua_block {
+                    local openidc = require("resty.openidc")
+                    local opts = {
+                        -- Use Kubernetes service name for Keycloak
+                        discovery = "http://keycloak-svc:8080/realms/myapp-realm/.well-known/openid-configuration",
+                        client_id = "myapp-api", -- Client ID in Keycloak for Nginx
+                        client_secret = "",      -- For public clients. If confidential, use a secret.
+                        ssl_verify = "no",       -- Change to "yes" in production with valid internal certs or if Keycloak is on HTTPS
+                        token_signing_alg_values_expected = "RS256",
+                        accept_none_alg = false,
+                        scope = "openid profile email",
+                        -- This redirect_uri should be a valid one registered in Keycloak for this client,
+                        -- even if not directly used by bearer_jwt_verify.
+                        -- Replace <your-external-domain> with the actual public domain.
+                        redirect_uri = "http://<your-external-domain>/auth/callback",
+                        session_checks_enabled = false,
+                        use_jwks_uri = true,
+                        cache_jwks_uri = true,
+                        cache_userinfo = true,
+                        renew_access_token_on_expiry = false
+                    }
+
+                    local res, err = openidc.bearer_jwt_verify(opts)
+                    if err then
+                        ngx.status = ngx.HTTP_UNAUTHORIZED
+                        ngx.header['Access-Control-Allow-Origin'] = '*'
+                        ngx.header['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+                        ngx.header['Content-Type'] = 'application/json'
+                        ngx.say('{"error":"Unauthorized", "details":"' ..ราคาต่อรองได้ .. tostring(err) .. '"}')
+                        ngx.exit(ngx.HTTP_UNAUTHORIZED)
+                    end
+
+                    ngx.req.set_header("X-User-ID", res.sub or "")
+                    ngx.req.set_header("X-User-Roles", table.concat(res.realm_access and res.realm_access.roles or {}, ","))
+                    ngx.req.set_header("X-Authenticated-User", res.preferred_username or res.sub or "")
+                }
+
+                rewrite ^/api/settings/?(.*)$ /$1 break;
+
+                # Use Kubernetes service name for settings_service
+                proxy_pass http://settings-service-svc:3000; # Port matches settings-service-svc targetPort
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme; # Important if Ingress terminates TLS
+                proxy_set_header Authorization $http_authorization; # Forward original auth header
+                proxy_pass_header Authorization;
+
+                add_header 'Access-Control-Allow-Origin' '*' always;
+                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            }
+
+            # ============================
+            # SHOP SERVICE
+            # ============================
+            location /api/shop/ {
+                if ($request_method = 'OPTIONS') {
+                    add_header 'Access-Control-Allow-Origin' '*'; # Consider restricting
+                    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS';
+                    add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
+                    add_header 'Access-Control-Max-Age' 1728000;
+                    add_header 'Content-Length' 0;
+                    add_header 'Content-Type' 'text/plain charset=UTF-8';
+                    return 204;
+                }
+
+                access_by_lua_block {
+                    local openidc = require("resty.openidc")
+                    local opts = {
+                        discovery = "http://keycloak-svc:8080/realms/myapp-realm/.well-known/openid-configuration",
+                        client_id = "myapp-api",
+                        client_secret = "",
+                        ssl_verify = "no", # Change to "yes" in production
+                        token_signing_alg_values_expected = "RS256",
+                        accept_none_alg = false,
+                        scope = "openid profile email",
+                        redirect_uri = "http://<your-external-domain>/auth/callback", # Replace
+                        session_checks_enabled = false,
+                        use_jwks_uri = true,
+                        cache_jwks_uri = true,
+                        cache_userinfo = true,
+                        renew_access_token_on_expiry = false
+                    }
+
+                    local res, err = openidc.bearer_jwt_verify(opts)
+                    if err then
+                        ngx.status = ngx.HTTP_UNAUTHORIZED
+                        ngx.header['Access-Control-Allow-Origin'] = '*'
+                        ngx.header['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+                        ngx.header['Content-Type'] = 'application/json'
+                        ngx.say('{"error":"Unauthorized", "details":"' .. tostring(err) .. '"}')
+                        ngx.exit(ngx.HTTP_UNAUTHORIZED)
+                    end
+
+                    ngx.req.set_header("X-User-ID", res.sub or "")
+                    ngx.req.set_header("X-User-Roles", table.concat(res.realm_access and res.realm_access.roles or {}, ","))
+                    ngx.req.set_header("X-Authenticated-User", res.preferred_username or res.sub or "")
+                }
+
+                rewrite ^/api/shop/?(.*)$ /$1 break;
+
+                # Use Kubernetes service name for shop_service
+                proxy_pass http://shop-service-svc:3000; # Port matches shop-service-svc targetPort
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme; # Important if Ingress terminates TLS
+                proxy_set_header Authorization $http_authorization;
+                proxy_pass_header Authorization;
+
+                add_header 'Access-Control-Allow-Origin' '*' always;
+                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            }
+        }
+    }

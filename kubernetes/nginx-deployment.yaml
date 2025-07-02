@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  replicas: 2 # Adjust as needed for load
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: <acr_name>.azurecr.io/nginx:<tag> # Placeholder for your custom Nginx image from nginx_config
+          ports:
+            - containerPort: 80
+              name: http
+          volumeMounts:
+            - name: nginx-config-volume
+              mountPath: /usr/local/openresty/nginx/conf/nginx.conf # Mount point for nginx.conf
+              subPath: nginx.conf # Mount only the nginx.conf file from the ConfigMap
+            # If serving frontend static files from this Nginx, mount them here
+            # - name: frontend-static-files
+            #   mountPath: /usr/share/nginx/html # Example path
+          readinessProbe:
+            httpGet:
+              path: /health # Matches the /health endpoint in nginx.conf
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 2
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: nginx-config-volume
+          configMap:
+            name: nginx-conf # Name of the ConfigMap created earlier
+        # If serving frontend static files, define the volume here
+        # - name: frontend-static-files
+        #   emptyDir: {} # Or a PVC if files are large/persistent and built separately

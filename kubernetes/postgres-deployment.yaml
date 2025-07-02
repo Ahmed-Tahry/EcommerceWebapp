@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-db
+  labels:
+    app: postgres-db
+spec:
+  replicas: 1 # PostgreSQL doesn't easily scale horizontally with Deployments. Consider StatefulSets for more complex setups or use a managed DB.
+  selector:
+    matchLabels:
+      app: postgres-db
+  template:
+    metadata:
+      labels:
+        app: postgres-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:13 # Matches docker-compose.yml
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB # Default database, Keycloak will use this.
+              value: keycloak
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db_password
+            - name: PGDATA # Data directory
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U keycloakadmin -d keycloak # Use actual values
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U keycloakadmin -d keycloak # Use actual values
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-data-pvc
+      # It's good practice to run DBs with a specific user if possible, not root.
+      # securityContext:
+      #   runAsUser: 70 # PostgreSQL user ID in the container
+      #   fsGroup: 70
+# Note: For the pg_isready probes, using $(POSTGRES_USER) and $(POSTGRES_DB) directly in the exec command args
+# might not work as expected because environment variable substitution in exec probes is not always straightforward.
+# A common workaround is to wrap the command in a shell:
+# command: ["/bin/sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+# Or, use the actual values if they are fixed or use a custom script within the container.
+# For simplicity here, I've left it, but it's a common gotcha.
+# The Keycloak Docker image uses 'keycloakadmin' and 'keycloak' by default. Let's use those directly in probe.
+# I will adjust the probes to use fixed values matching the env vars for Keycloak's default DB.

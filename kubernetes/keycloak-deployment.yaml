@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+spec:
+  replicas: 1 # Consider more replicas for HA in production
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: <acr_name>.azurecr.io/keycloak:<tag> # Placeholder for ACR image
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: keycloak_admin_user
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: keycloak_admin_password
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              # Assuming a PostgreSQL service named 'postgres-db-keycloak-svc' and default port 5432
+              # This will need to be created or point to an Azure managed PostgreSQL instance
+              value: jdbc:postgresql://postgres-db-keycloak-svc:5432/keycloak
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db_user
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db_password
+            - name: KC_DB_SCHEMA
+              value: public
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HTTPS_ENABLED # Set to "true" in production with proper certs
+              value: "false"
+            - name: KC_HTTP_PORT
+              value: "8080"
+            # KC_HOSTNAME_URL should be the public URL Keycloak is accessed through (via Ingress)
+            # KC_HOSTNAME_ADMIN_URL is typically the same or an internal URL if admin access is restricted
+            # For now, using internal service name. This needs to be updated post-Ingress setup.
+            - name: KC_HOSTNAME_URL
+              value: "http://keycloak-svc:8080"
+            - name: KC_HOSTNAME_ADMIN_URL
+              value: "http://keycloak-svc:8080"
+            - name: KC_HOSTNAME_STRICT
+              value: "false" # Set to true in production after setting correct public hostname
+            - name: KC_HOSTNAME_STRICT_HTTPS
+              value: "false" # Set to true in production with HTTPS
+            # Required for OpenID Connect discovery to work correctly behind a proxy
+            - name: PROXY_ADDRESS_FORWARDING
+              value: "true"
+            # Keycloak uses JGROUPS for clustering if replicas > 1. Default is UDP.
+            # For Kubernetes, TCP with dns.DNS_PING is preferred.
+            # This requires adding `jgroups-dns-ping` to the image or configuring Keycloak's JGroups stack.
+            # Example for TCP (requires further Keycloak image/config customization):
+            # - name: JGROUPS_DISCOVERY_PROTOCOL
+            #   value: "dns.DNS_PING"
+            # - name: JGROUPS_DISCOVERY_PROPERTIES
+            #   value: "dns_query=keycloak-svc" # Should match the Kubernetes service name for Keycloak
+          readinessProbe:
+            httpGet:
+              path: /health/ready # Keycloak 20+ path
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10 # Allow more time for Keycloak to start
+          livenessProbe:
+            httpGet:
+              path: /health/live # Keycloak 20+ path
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              memory: "1Gi" # Keycloak can be memory intensive
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+      # If using a self-managed PostgreSQL in Kubernetes, this deployment
+      # would typically depend on the PostgreSQL statefulset/service being ready.
+      # Consider init containers or other mechanisms if strict startup order is needed.
