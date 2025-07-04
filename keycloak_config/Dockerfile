@@ -3,7 +3,7 @@ FROM busybox:glibc as jq-downloader
 ADD https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 /jq
 RUN chmod +x /jq
 
-# Stage 2: Keycloak
+# Stage 2: Keycloak based on official image
 FROM quay.io/keycloak/keycloak:26.2.5
 USER root
 COPY --from=jq-downloader /jq /usr/bin/jq
@@ -11,6 +11,11 @@ COPY entrypoint.sh /opt/keycloak/bin/entrypoint.sh
 COPY configure_keycloak_oidc.sh /opt/keycloak/bin/configure_keycloak_oidc.sh
 COPY configure_keycloak_roles.sh /opt/keycloak/bin/configure_keycloak_roles.sh
 RUN chmod +x /opt/keycloak/bin/*.sh
+
+# Install curl for health checks in entrypoint.sh
+USER root
+RUN microdnf install -y curl && microdnf clean all
+
 ENV KC_BOOTSTRAP_ADMIN_USERNAME=admin
 ENV KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 ENV KC_DB=postgres

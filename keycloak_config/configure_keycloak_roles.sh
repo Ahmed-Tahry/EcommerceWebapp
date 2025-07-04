@@ -4,7 +4,8 @@
 set -e
 
 # --- Configuration Variables ---
-KEYCLOAK_URL="${KEYCLOAK_URL:-http://keycloak:8080}" # Use environment variable if set, otherwise default
+# For kcadm.sh running inside this container, always target localhost
+KCADM_TARGET_URL="http://localhost:8080"
 ADMIN_USER="${KEYCLOAK_ADMIN_USER:-admin}" # Keycloak master admin
 ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin}" # Keycloak master admin password - CHANGE IN PRODUCTION & USE ENV VARS
 REALM_NAME="myapp-realm" # The realm we are configuring
@@ -39,13 +40,13 @@ KCADM_CMD="/opt/keycloak/bin/kcadm.sh"
 # KCADM_CMD="kcadm.sh"
 
 echo "--- Starting Keycloak Roles and Users Configuration for realm '$REALM_NAME' ---"
-echo "Keycloak URL: $KEYCLOAK_URL"
+echo "Admin CLI Target URL: $KCADM_TARGET_URL"
 echo "Realm Name: $REALM_NAME"
 echo "Target Client ID for scope_mappings: $TARGET_CLIENT_ID"
 
 # --- 1. Login to Keycloak Admin CLI ---
-echo "Attempting to log in to Keycloak ($KEYCLOAK_URL) as admin user '$ADMIN_USER'..."
-$KCADM_CMD config credentials --server $KEYCLOAK_URL --realm master --user $ADMIN_USER --password $ADMIN_PASSWORD
+echo "Attempting to log in to Keycloak ($KCADM_TARGET_URL) as admin user '$ADMIN_USER'..."
+$KCADM_CMD config credentials --server "$KCADM_TARGET_URL" --realm master --user $ADMIN_USER --password $ADMIN_PASSWORD
 echo "Admin login successful."
 
 # --- 2. Delete Old Realm Roles (if they exist) ---
