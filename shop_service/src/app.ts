@@ -1,5 +1,6 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import mainRouter from './routes'; // Corrected from './routes/index' to './routes'
+import internalRouter from './routes/internal.routes'; // Import internal router
 import { errorHandler } from './middlewares/middlewares';
 import config from './config/config';
 
@@ -15,7 +16,8 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 // API Routes
-app.use('/api', mainRouter);
+app.use('/api', mainRouter); // For public/external APIs
+app.use('/internal/api', internalRouter); // For service-to-service APIs
 
 // Error Handling Middleware - should be last middleware
 app.use(errorHandler);

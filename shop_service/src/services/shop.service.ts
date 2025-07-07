@@ -158,6 +158,184 @@ export async function updateProduct(ean: string, updateData: Partial<IProduct>):
   }
 }
 
+// --- Invoice Service Integration ---
+import config from '../config/config'; // For invoice_service URL
+// Assuming axios is already imported or available in this file. If not, it should be imported.
+// import axios from 'axios'; // Ensure axios is imported
+
+interface RawOrderPayloadItemForInvoice {
+    bol_product_id: string; // EAN
+    product_title: string;
+    quantity: number;
+    unit_price: number; // Price per unit, EXCLUSIVE of VAT
+    sku?: string;
+}
+interface RawOrderPayloadForInvoice {
+    shop_id: number; // This needs to be determined, perhaps from a user/shop context
+    order_id: string; // Bol.com Order ID
+    customer_name?: string;
+    customer_email?: string;
+    billing_address?: any;
+    shipping_address?: any;
+    order_date?: string | Date;
+    currency?: string;
+    items: RawOrderPayloadItemForInvoice[];
+    discount_amount?: number;
+    notes?: string;
+    payment_method?: string;
+    bol_order_data?: any;
+}
+
+/**
+ * Triggers invoice creation in the invoice_service for a given order.
+ * @param orderId The ID of the order in shop_service.
+ * @param shopId The ID of the shop this order belongs to.
+ */
+export async function triggerInvoiceCreation(orderId: string, shopId: number): Promise<any> {
+    console.log(`Attempting to trigger invoice creation for order ${orderId}, shop ${shopId}`);
+
+    // 1. Fetch complete order details from ShopDb
+    const order = await getOrderById(orderId); // Assumes this function exists and fetches the main order details
+    const orderItems = await getOrderItemsByOrderId(orderId); // Assumes this fetches line items
+
+    if (!order || !orderItems || orderItems.length === 0) {
+        console.error(`Order ${orderId} or its items not found in shop_service.`);
+        throw new Error(`Order ${orderId} or its items not found, cannot trigger invoice.`);
+    }
+
+    // 2. Construct the RawOrderPayloadForInvoice
+    const payloadItems: RawOrderPayloadItemForInvoice[] = [];
+
+    for (const item of orderItems) {
+        // Fetch product details to get title and current VAT rate (to calculate pre-VAT price if needed)
+        const product = await getProductByEan(item.ean); // Assumes item.ean is the bol_product_id
+        if (!product) {
+            console.warn(`Product with EAN ${item.ean} for order item ${item.orderItemId} not found. Skipping item for invoice.`);
+            continue; // Or handle error more strictly
+        }
+
+        // CRUCIAL: unit_price sent to invoice_service MUST BE EXCLUSIVE OF VAT.
+        // If Bol.com provides price inclusive of VAT, calculate exclusive price here.
+        // Let's assume for now item.price or a similar field on orderItem is INCLUSIVE of VAT from Bol.
+        // And product.vatRate is the percentage (e.g., 21 for 21%).
+        // This part is highly dependent on how order prices are stored/retrieved from Bol.
+        // Example: If order item has `item.transaction_price_inclusive_vat`
+        // const priceInclusiveVat = item.some_price_field_from_bol; // This needs to be actual field
+        // const vatRateDecimal = (product.vatRate || 0) / 100;
+        // const unitPriceExclusiveVat = priceInclusiveVat / (1 + vatRateDecimal);
+
+        // For this placeholder, we'll assume orderItem has a unit_price that is already exclusive.
+        // If not, the calculation above is needed.
+        // This is a MAJOR assumption. If unit_price from Bol order is inclusive, it MUST be converted.
+        // const unitPriceExclusiveVat = item.unit_price_from_bol_order; // Placeholder: Replace with actual field or calculation
+
+        // --- MODIFICATION FOR VAT-EXCLUSIVE PRICE CALCULATION ---
+        // Assume 'item' (IOrderItem) has a field like 'price_inclusive_vat' from Bol.com
+        // And 'product' (IProduct) has 'vatRate' (e.g., 21 for 21%).
+        // This is a critical assumption about the structure of IOrderItem.
+        // Now using the field `unit_price_inclusive_vat` which should be populated in `item` (IOrderItem)
+        const priceInclusiveVat = item.unit_price_inclusive_vat;
+
+        if (typeof priceInclusiveVat !== 'number' || priceInclusiveVat === null) { // Check for null as well
+            console.warn(`VAT-inclusive unit price for EAN ${item.ean} (order item ${item.orderItemId}) is not valid or not found. Value: ${priceInclusiveVat}. Skipping item for invoice payload.`);
+            continue;
+        }
+        if (typeof product.vatRate !== 'number') {
+            console.warn(`VAT Rate for product EAN ${item.ean} is not valid. Skipping item for invoice payload.`);
+            continue;
+        }
+
+        const vatRateDecimal = product.vatRate / 100;
+        const unitPriceExclusiveVat = priceInclusiveVat / (1 + vatRateDecimal);
+        // --- END MODIFICATION ---
+
+
+        if (typeof unitPriceExclusiveVat !== 'number') {
+             console.warn(`Calculated VAT-exclusive unit price for EAN ${item.ean} is not valid. Skipping item.`);
+             continue;
+        }
+
+
+        payloadItems.push({
+            bol_product_id: item.ean, // Assuming ean is the bol_product_id
+            product_title: product.title || 'Unknown Product',
+            quantity: item.quantity,
+            unit_price: parseFloat(unitPriceExclusiveVat.toFixed(2)), // Ensure 2 decimal places
+            sku: product.sku || undefined, // Assuming product model might have SKU
+        });
+    }
+
+    if (payloadItems.length === 0) {
+        console.error(`No valid items found to invoice for order ${orderId}.`);
+        throw new Error(`No valid items to invoice for order ${orderId}.`);
+    }
+
+    const payload: RawOrderPayloadForInvoice = {
+        shop_id: shopId, // This needs to be passed in or determined contextually
+        order_id: order.orderId,
+        // customer_name: order.customerDetails?.name, // Adjust based on actual order structure
+        // customer_email: order.customerDetails?.email,
+        // billing_address: order.billingAddress,
+        // shipping_address: order.shippingAddress,
+        order_date: order.orderPlacedDateTime,
+        currency: order.currency || 'EUR', // Assuming order might have currency
+        items: payloadItems,
+        // discount_amount: order.discountAmount,
+        // notes: order.notes,
+        // payment_method: order.paymentMethod,
+        // bol_order_data: order.rawBolData, // If you store it
+    };
+
+    // 3. Call invoice_service
+    const invoiceServiceUrl = config.invoiceServiceInternalUrl;
+    if (!invoiceServiceUrl) {
+        console.error('Invoice service URL is not configured in shop_service.');
+        throw new Error('Invoice service URL not configured.');
+    }
+
+    try {
+        console.log(`Sending order ${orderId} to invoice_service at ${invoiceServiceUrl}/api/invoices/trigger-from-order`);
+        const response = await axios.post(`${invoiceServiceUrl}/api/invoices/trigger-from-order`, payload);
+        console.log(`Invoice_service response for order ${orderId}:`, response.data);
+        return response.data; // Return response from invoice_service
+    } catch (error) {
+        console.error(`Error calling invoice_service for order ${orderId}:`, error.isAxiosError ? error.response?.data || error.message : error.message);
+        // Rethrow or handle specific errors (e.g., if invoice_service is down, queue for retry)
+        throw new Error(`Failed to trigger invoice creation for order ${orderId}.`);
+    }
+}
+
+
+/**
+ * Retrieves VAT information for a list of product EANs.
+ * @param eans - An array of product EANs (strings).
+ * @returns A promise that resolves to an array of objects, each containing id (EAN) and vat_rate.
+ */
+export async function getProductsVatInfoByIds(eans: string[]): Promise<Array<{ id: string; vat_rate: number }>> {
+    if (!eans || eans.length === 0) {
+        return [];
+    }
+
+    const pool = getDBPool();
+    try {
+        const query = `
+            SELECT ean AS id, vat_rate
+            FROM products
+            WHERE ean = ANY($1::text[])
+        `;
+        // Ensure eans array is correctly passed to the query
+        const result = await pool.query(query, [eans]);
+
+        return result.rows.map(row => ({
+            id: row.id,
+            vat_rate: parseFloat(row.vat_rate) // vat_rate is NUMERIC(5,2), ensure it's a number
+        }));
+    } catch (error) {
+        console.error('Error fetching products VAT info from database (shop_service):', error);
+        throw new Error('Failed to retrieve product VAT information from shop_service.');
+    }
+}
+
 
 // --- Bol.com Product Content Synchronization ---
 
@@ -620,6 +798,7 @@ export async function synchronizeBolOrders(
                 latestChangedDateTime: bolItem.fulfilment?.latestChangedDateTime
                                         ? new Date(bolItem.fulfilment.latestChangedDateTime)
                                         : new Date(),
+                unit_price_inclusive_vat: bolItem.unitPrice, // Map unitPrice from BolOrderItem
               };
               localOrderItems.push(localItemData);
 
@@ -629,7 +808,7 @@ export async function synchronizeBolOrders(
                 summary.updatedItems++;
                  console.log(`Updated order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId}`);
               } else {
-                await createOrderItem(localItemData);
+                await createOrderItem(localItemData); // createOrderItem needs to be aware of the new field
                 summary.createdItems++;
                 console.log(`Created new order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId}`);
               }
@@ -641,6 +820,28 @@ export async function synchronizeBolOrders(
             if (currentOrder) { // currentOrder should be defined here
                  await updateOrder(currentOrder.orderId, { orderItems: localOrderItems });
                  console.log(`Updated order ${currentOrder.orderId} with its processed items.`);
+
+                 // If it was a newly created order, trigger invoice creation
+                 if (isNewOrder) { // isNewOrder flag was set when a new order record was created
+                    try {
+                        // Assuming userId passed to synchronizeBolOrders can be used as shopId.
+                        // This requires userId to be a string that can be parsed to a number,
+                        // or shopId needs to be sourced differently if userId isn't the shop identifier.
+                        const shopIdForInvoice = parseInt(userId, 10);
+                        if (isNaN(shopIdForInvoice)) {
+                            console.error(`Invalid shopId derived for invoice trigger (userId: ${userId}) for order ${currentOrder.orderId}.`);
+                            throw new Error (`Invalid shopId derived for invoice trigger (userId: ${userId})`);
+                        }
+                        console.log(`Triggering invoice creation for new order ${currentOrder.orderId}, shopId ${shopIdForInvoice}`);
+                        await triggerInvoiceCreation(currentOrder.orderId, shopIdForInvoice);
+                        console.log(`Invoice creation triggered successfully for order ${currentOrder.orderId}`);
+                    } catch (invoiceTriggerError) {
+                        console.error(`Failed to trigger invoice for order ${currentOrder.orderId}:`, invoiceTriggerError);
+                        // Add to summary errors, but don't let it stop sync of other orders.
+                        summary.errors.push(`InvoiceTriggerFail Order ${currentOrder.orderId}: ${(invoiceTriggerError as Error).message}`);
+                        // Optionally, increment a specific counter for invoice trigger failures in summary.
+                    }
+                 }
             }
           }
         } catch (orderProcessingError) {
@@ -1097,6 +1298,7 @@ export async function createOrderItem(orderItemData: IOrderItem): Promise<IOrder
     orderItemId, orderId, ean, fulfilmentMethod = null, fulfilmentStatus = null,
     quantity = 0, quantityShipped = 0, quantityCancelled = 0,
     cancellationRequest = false, latestChangedDateTime = new Date(),
+    unit_price_inclusive_vat = null, // Added new field
   } = orderItemData;
 
   const orderCheckQuery = 'SELECT "orderId" FROM orders WHERE "orderId" = $1';
@@ -1108,13 +1310,15 @@ export async function createOrderItem(orderItemData: IOrderItem): Promise<IOrder
   const query = `
     INSERT INTO order_items (
       "orderItemId", "orderId", ean, "fulfilmentMethod", "fulfilmentStatus",
-      quantity, "quantityShipped", "quantityCancelled", "cancellationRequest", "latestChangedDateTime"
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      quantity, "quantityShipped", "quantityCancelled", "cancellationRequest", "latestChangedDateTime",
+      "unit_price_inclusive_vat"
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     RETURNING *;
   `;
   const values = [
     orderItemId, orderId, ean, fulfilmentMethod, fulfilmentStatus,
-    quantity, quantityShipped, quantityCancelled, cancellationRequest, latestChangedDateTime
+    quantity, quantityShipped, quantityCancelled, cancellationRequest, latestChangedDateTime,
+    unit_price_inclusive_vat
   ];
 
   try {
@@ -1160,9 +1364,11 @@ export async function updateOrderItem(orderItemId: string, updateData: Partial<I
   let valueCount = 1;
 
   for (const [key, value] of Object.entries(updateData)) {
-    if (key === 'orderItemId' || key === 'orderId') continue;
+    if (key === 'orderItemId' || key === 'orderId') continue; // Primary/foreign keys usually not updated this way
     if (value !== undefined) {
-        setClauses.push(`"${key}" = $${valueCount++}`);
+        // Ensure correct column name for unit_price_inclusive_vat if key in updateData is different
+        const dbKey = key === 'unit_price_inclusive_vat' ? '"unit_price_inclusive_vat"' : `"${key}"`;
+        setClauses.push(`${dbKey} = $${valueCount++}`);
         values.push(value);
     }
   }

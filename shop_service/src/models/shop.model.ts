@@ -41,6 +41,7 @@ export interface IOrderItem {
   quantityCancelled?: number | null;
   cancellationRequest?: boolean | null;
   latestChangedDateTime?: Date | null;
+  unit_price_inclusive_vat?: number | null; // Price per unit as from Bol.com, assumed VAT inclusive
 }
 
 // Represents basic product information, potentially synced with Bol.com product content

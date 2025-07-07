@@ -13,6 +13,7 @@ interface IConfig {
   env: string;
   port: number;
   db: IDatabaseConfig;
+  invoiceServiceInternalUrl?: string;
   // Add other configuration properties here
 }
 
@@ -26,6 +27,7 @@ const config: IConfig = {
     password: process.env.DB_PASSWORD,
     name: process.env.DB_NAME,
   },
+  invoiceServiceInternalUrl: process.env.INVOICE_SERVICE_INTERNAL_URL || 'http://invoice_service:3002',
 };
 
 // Basic validation for essential DB config

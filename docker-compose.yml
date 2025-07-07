@@ -113,6 +113,38 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  invoice_service:
+    build:
+      context: ./invoice_service
+      dockerfile: Dockerfile
+    container_name: invoice_service
+    ports:
+      - "3002:3002" # As per invoice_service config
+    volumes:
+      - ./invoice_service:/usr/src/app/invoice_service # Mount local code for development
+      - /usr/src/app/invoice_service/node_modules # Anonymous volume for node_modules
+    environment:
+      - NODE_ENV=development
+      - INVOICE_SERVICE_PORT=3002
+      # Specific DB vars for invoice_service as defined in its config.ts
+      - INVOICE_DB_HOST=postgres-db
+      - INVOICE_DB_USER=keycloakadmin
+      - INVOICE_DB_PASSWORD=StrongPassword123!
+      - INVOICE_DB_NAME=InvoiceDb
+      - INVOICE_DB_PORT=5432
+      # Fallback generic DB vars (optional, if config uses them as fallbacks)
+      - DB_HOST=postgres-db
+      - DB_USER=keycloakadmin
+      - DB_PASSWORD=StrongPassword123!
+      - DB_NAME=InvoiceDb # This will be targeted by INVOICE_DB_NAME
+      - DB_PORT=5432
+    networks:
+      - keycloak_network
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    restart: unless-stopped
+
   settings_service:
     build:
       context: ./settings_service

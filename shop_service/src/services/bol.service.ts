@@ -476,4 +476,65 @@ this.apiClient.interceptors.request.use(
 
 // export const bolService = new BolService(bolClientId, bolClientSecret);
 
+
+  // --- Invoice Upload Method (Speculative) ---
+  public async uploadInvoicePdf(
+    orderId: string,
+    invoicePdfBuffer: Buffer,
+    invoiceFilename: string
+  ): Promise<{ success: boolean; bolResponse?: any; error?: string }> {
+    // IMPORTANT: This is a speculative implementation as the actual Bol.com API
+    // for invoice upload is unknown. Details WILL need to be adjusted.
+
+    // Assumed endpoint and method. This is a GUESS.
+    const uploadUrlPath = `/orders/${orderId}/invoices`; // Example path
+    const method = 'POST'; // Common for uploads
+
+    try {
+      console.log(`Attempting to upload invoice PDF for order ${orderId} to Bol.com.`);
+
+      // Sending as multipart/form-data is common for file uploads.
+      // Axios can handle this if `form-data` library is used, or natively with some setup.
+      // For simplicity, let's assume a direct buffer upload if Bol.com API supports it,
+      // or a placeholder for multipart.
+      // If using multipart/form-data:
+      const FormData = require('form-data'); // Would need to add 'form-data' to package.json
+      const form = new FormData();
+      form.append('invoiceFile', invoicePdfBuffer, {
+        filename: invoiceFilename,
+        contentType: 'application/pdf',
+      });
+      // form.append('orderId', orderId); // If orderId also needs to be part of the form
+
+      const response = await this.apiClient.post(uploadUrlPath, form, {
+        headers: {
+          ...form.getHeaders(), // Important for multipart/form-data
+          // Any other specific headers Bol.com might require for this endpoint
+        },
+      });
+
+      console.log(`Successfully uploaded invoice for order ${orderId} to Bol.com. Response:`, response.data);
+      return { success: true, bolResponse: response.data };
+
+    } catch (error) {
+      const axiosError = error as AxiosError<BolApiError | unknown>;
+      let errorMessage = `Failed to upload invoice for order ${orderId} to Bol.com.`;
+      if (axiosError.response) {
+        const { status, data } = axiosError.response;
+        if (typeof data === 'object' && data !== null && 'title' in data && 'detail' in data) {
+          const bolError = data as BolApiError;
+          errorMessage += ` Bol API Error: ${bolError.title} - ${bolError.detail}`;
+        } else {
+          errorMessage += ` Status ${status} - Unexpected response.`;
+        }
+        console.error(errorMessage, data);
+      } else {
+        errorMessage += ` ${axiosError.message}`;
+        console.error(errorMessage, axiosError);
+      }
+      return { success: false, error: errorMessage, bolResponse: axiosError.response?.data };
+    }
+  }
+}
+
 export default BolService;
