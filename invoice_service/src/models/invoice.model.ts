@@ -55,6 +55,11 @@ export interface Invoice extends Omit<InvoiceBase, 'items'> {
     created_at: Date;
     updated_at: Date;
     items?: InvoiceItem[]; // Items are typically fetched separately or joined
+
+    // Fields for Bol.com upload tracking
+    bol_invoice_upload_status?: string | null;
+    bol_invoice_uploaded_at?: Date | null;
+    bol_invoice_upload_details?: string | null;
 }
 
 // --- Invoice Model Functions ---
@@ -226,6 +231,46 @@ export const updateInvoiceStatus = async (id: number, status: string): Promise<I
     }
     return result.rows[0];
 };
+
+/**
+ * Updates the Bol.com upload status information for a given invoice.
+ */
+export const updateInvoiceBolUploadInfo = async (
+    invoiceId: number,
+    status: string,
+    uploadedAt?: Date | null,
+    details?: string | null
+): Promise<Invoice | null> => {
+    const pool = getDBPool();
+    const updateFields: any = {
+        bol_invoice_upload_status: status,
+        bol_invoice_upload_details: details,
+        updated_at: new Date(), // Always update the main updated_at timestamp
+    };
+    if (uploadedAt !== undefined) { // Allow explicit null to clear the date
+        updateFields.bol_invoice_uploaded_at = uploadedAt;
+    }
+
+    const setClauses = Object.keys(updateFields)
+        .map((key, index) => `"${key}" = $${index + 1}`)
+        .join(', ');
+    const values = Object.values(updateFields);
+    values.push(invoiceId); // For the WHERE clause
+
+    const query = `UPDATE invoices SET ${setClauses} WHERE id = $${values.length} RETURNING *`;
+
+    try {
+        const result = await pool.query(query, values);
+        if (result.rows.length === 0) {
+            return null;
+        }
+        return result.rows[0] as Invoice;
+    } catch (error) {
+        console.error(`Error updating Bol upload info for invoice ${invoiceId}:`, error);
+        throw error;
+    }
+};
+
 
 // Add more functions as needed:
 // - updateInvoice(id: number, data: Partial<InvoiceBase>): Promise<Invoice | null>

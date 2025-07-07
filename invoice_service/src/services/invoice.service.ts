@@ -142,6 +142,86 @@ export const createNewInvoice = async (
     }
 };
 
+/**
+ * Uploads a generated invoice PDF to Bol.com via the shop_service.
+ * Also updates the invoice's Bol.com upload status in the local database.
+ */
+export const uploadInvoiceToBol = async (invoiceId: number): Promise<{ success: boolean; details?: any; error?: string }> => {
+    let currentUploadStatus = 'PENDING'; // Initial status
+    let uploadDetailsMessage = 'Upload attempt initiated.';
+
+    const invoice = await getInvoiceDetails(invoiceId, false); // Don't need items for this operation initially
+    if (!invoice) {
+        console.error(`Invoice ${invoiceId} not found for Bol.com upload.`);
+        // No invoice to update status for, just return error
+        return { success: false, error: `Invoice ${invoiceId} not found.` };
+    }
+    if (!invoice.order_id) {
+        console.error(`Invoice ${invoiceId} does not have an order_id for Bol.com upload.`);
+        await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, 'FAILED', null, 'Invoice missing order_id.');
+        return { success: false, error: `Invoice ${invoiceId} missing order_id.` };
+    }
+
+    const shopContextId = invoice.shop_id?.toString();
+    if (!shopContextId) {
+        console.error(`Invoice ${invoiceId} is missing shop_id context required for Bol.com API credentials.`);
+        await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, 'FAILED', null, 'Missing shop_id context for upload.');
+        return { success: false, error: `Invoice ${invoiceId} missing shop_id context.` };
+    }
+
+    // Update status to PENDING before attempting PDF generation and upload
+    await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, 'PENDING', null, 'Generating PDF for upload.');
+
+    const pdfBuffer = await getInvoicePdfBuffer(invoiceId);
+    if (!pdfBuffer) {
+        console.error(`Failed to generate PDF for invoice ${invoiceId} for Bol.com upload.`);
+        await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, 'FAILED', null, 'PDF generation failed.');
+        return { success: false, error: `Failed to generate PDF for invoice ${invoiceId}.` };
+    }
+
+    const invoicePdfBase64 = pdfBuffer.toString('base64');
+    const invoiceFilename = `invoice-${invoice.invoice_number}.pdf`;
+
+    const shopServiceUrl = config.shopServiceUrl;
+    if (!shopServiceUrl) {
+        console.error('Shop service URL is not configured in invoice_service.');
+        await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, 'FAILED', null, 'Shop service URL not configured.');
+        return { success: false, error: 'Shop service URL not configured.' };
+    }
+
+    const uploadEndpoint = `${shopServiceUrl}/internal/api/orders/${invoice.order_id}/upload-invoice`;
+
+    try {
+        await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, 'UPLOADING', null, `Attempting upload to ${uploadEndpoint}`);
+        console.log(`Attempting to send invoice ${invoiceId} PDF to shop_service for Bol.com upload. Endpoint: ${uploadEndpoint}`);
+
+        const response = await axios.post(
+            uploadEndpoint,
+            { invoicePdfBase64, invoiceFilename },
+            { headers: { 'Content-Type': 'application/json', 'x-user-id': shopContextId } }
+        );
+
+        console.log(`Shop_service response for invoice ${invoiceId} upload:`, response.data);
+        const shopServiceResponseData = response.data || {};
+        // Assuming shop_service response includes a 'success: boolean' field indicating Bol.com's actual upload result
+        const uploadSuccess = shopServiceResponseData.success === undefined ? (response.status >= 200 && response.status < 300) : shopServiceResponseData.success;
+
+        currentUploadStatus = uploadSuccess ? 'SUCCESS' : 'FAILED';
+        uploadDetailsMessage = JSON.stringify(shopServiceResponseData.details || shopServiceResponseData.error || shopServiceResponseData.message || shopServiceResponseData);
+
+        await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, currentUploadStatus, uploadSuccess ? new Date() : null, uploadDetailsMessage);
+        return { success: uploadSuccess, details: response.data };
+
+    } catch (error) {
+        const axiosError = error as any;
+        uploadDetailsMessage = JSON.stringify(axiosError.response?.data || axiosError.message || 'Unknown error during shop_service call');
+        console.error(`Error calling shop_service to upload invoice ${invoiceId} PDF:`, uploadDetailsMessage);
+        currentUploadStatus = 'FAILED';
+        await InvoiceModel.updateInvoiceBolUploadInfo(invoiceId, currentUploadStatus, null, `Network/Request error: ${uploadDetailsMessage}`);
+        return { success: false, error: `Failed to call shop_service for invoice upload: ${axiosError.message}`, details: axiosError.response?.data };
+    }
+};
+
 // This interface should match the one in the controller.
 // Consider moving shared DTOs to a common types directory if they grow complex or are used by more services.
 interface RawOrderPayloadItem {
@@ -207,8 +287,23 @@ export const createInvoiceFromOrderData = async (orderData: RawOrderPayload): Pr
 
     try {
         const createdInvoice = await createNewInvoice(invoiceInput);
-        // Potentially, after successful creation, trigger PDF storage or other post-creation actions
-        // For now, just return the created invoice.
+
+        // After successful invoice creation, trigger the Bol.com upload automatically.
+        // Run this asynchronously and don't let its failure fail the overall invoice creation response.
+        // Errors during upload will be logged by uploadInvoiceToBol and status updated in DB.
+        if (createdInvoice && createdInvoice.id) {
+            console.log(`Invoice ${createdInvoice.id} created. Triggering automatic upload to Bol.com.`);
+            this.uploadInvoiceToBol(createdInvoice.id).catch(uploadError => {
+                // Catch errors from the promise here if not already caught within uploadInvoiceToBol,
+                // though uploadInvoiceToBol is designed to not throw but return success/error object.
+                // This catch is more for unexpected promise rejections from uploadInvoiceToBol itself.
+                console.error(`Background Bol.com upload failed for invoice ${createdInvoice.id}:`, uploadError);
+                // The status in DB should already be 'FAILED' by uploadInvoiceToBol.
+            });
+        } else {
+            console.warn(`Invoice object or ID missing after creation for order ${orderData.order_id}, cannot trigger Bol.com upload.`);
+        }
+
         return createdInvoice;
     } catch (error) {
         console.error(`Error in service creating invoice from order data for order ${orderData.order_id}:`, error);
