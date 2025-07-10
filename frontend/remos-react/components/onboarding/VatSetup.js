@@ -7,7 +7,7 @@ import { callApi } from '@/utils/api';
 // For now, let's assume it works or we'll simplify the JSX if Layout isn't appropriate for this component context.
 // import Layout from "@/components/layout/Layout";
 
-export default function VatSetup() {
+export default function VatSetup({ onComplete }) { // Added onComplete prop
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
 
   // State for this com ponent
@@ -125,6 +125,7 @@ const handleUpdateVat = async (ean) => {
     setStepCompletionError(null);
     try {
       await markStepAsComplete('hasCompletedVatSetup');
+      if (onComplete) onComplete(); // Call onComplete on success
       // Optionally re-fetch products or clear list if needed after step completion
     } catch (err) {
       console.error('Failed to mark VAT setup as complete:', err);
