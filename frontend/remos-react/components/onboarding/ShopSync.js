@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { callApi } from '@/utils/api';
 
-export default function ShopSync() {
+export default function ShopSync({ onComplete }) { // Added onComplete prop
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
   const [syncStatus, setSyncStatus] = useState({
     orders: '',
@@ -54,6 +54,7 @@ export default function ShopSync() {
     setError(null);
     try {
       await markStepAsComplete('hasCompletedShopSync');
+      if (onComplete) onComplete(); // Call onComplete on success
     } catch (err) {
       console.error('Failed to mark shop sync as complete:', err);
       const errorMessage = (err && err.message) ? err.message : String(err);
