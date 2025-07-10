@@ -21,9 +21,6 @@ export default function InvoiceSettingsForm() {
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
-    // This effect could pre-fill data if a GET /api/settings/invoice existed
-    // For now, it just ensures the form is reset if the step isn't complete
-    // and the component is re-rendered.
     if (onboardingStatus && !onboardingStatus.hasCompletedInvoiceSetup) {
       // setFormData(initialFormData); // Or fetch existing settings if API allows
     }

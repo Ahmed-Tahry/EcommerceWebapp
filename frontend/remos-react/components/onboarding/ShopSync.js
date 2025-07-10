@@ -65,7 +65,6 @@ export default function ShopSync() {
 
   const bingo1 = syncStatus.orders.startsWith('Order sync initiated');
   const bingo2 = syncStatus.offers.startsWith('Offer export and sync initiated');
-  // A more robust check might involve specific success flags from the backend if available
   const canCompleteStep = bingo1 && bingo2;
 
   if (onboardingStatus && onboardingStatus.hasCompletedShopSync) {

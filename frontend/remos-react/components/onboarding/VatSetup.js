@@ -3,9 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { callApi } from '@/utils/api';
-// Assuming Layout provides general page structure, might need adjustment if it's not suitable here
-// For now, let's assume it works or we'll simplify the JSX if Layout isn't appropriate for this component context.
-// import Layout from "@/components/layout/Layout";
+
 
 export default function VatSetup() {
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
@@ -15,7 +13,7 @@ export default function VatSetup() {
   const [vatInputs, setVatInputs] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [itemsPerPage] = useState(10); // Configurable items per page
+  const [itemsPerPage] = useState(10); 
 
   const [componentLoading, setComponentLoading] = useState(true); // For fetching products
   const [componentError, setComponentError] = useState(null);    // For fetching products error
@@ -36,7 +34,6 @@ const fetchProducts = useCallback(async (page = 1) => {
     );
     console.log(response);
 
-    // You no longer need to call response.json() or check response.ok
     setProducts(response.products || []);
     setTotalPages(Math.ceil((response.total || 0) / itemsPerPage));
     setCurrentPage(response.page || 1);
@@ -91,12 +88,12 @@ const handleUpdateVat = async (ean) => {
       { vatRate: vatRateToUpdate }
     );
 
-    // If callApi returns an error format, you may need to check manually
+
     if (response.error || response.status === 'error') {
       throw new Error(response.message || 'Unknown error updating VAT.');
     }
 
-    // Update local state to reflect the change
+    
     setProducts(prevProducts =>
       prevProducts.map(p =>
         p.ean === ean ? { ...p, vatRate: vatRateToUpdate } : p
@@ -193,7 +190,7 @@ const handleUpdateVat = async (ean) => {
                   </td>
                   <td className="p-2 border">
                     <button
-                      className="tf-button-primary btn-sm px-3 py-1" // Assuming tf-button-primary exists or use standard btn classes
+                      className="tf-button-primary btn-sm px-3 py-1" 
                       onClick={() => handleUpdateVat(product.ean)}
                       disabled={updateInProgress[product.ean]}
                     >
@@ -228,7 +225,7 @@ const handleUpdateVat = async (ean) => {
 
       <button
         onClick={handleCompleteVatSetupStep}
-        className="tf-button w-full sm:w-auto" // Assuming tf-button is a global style
+        className="tf-button w-full sm:w-auto" 
         disabled={isStepCompletionLoading || (onboardingStatus && onboardingStatus.hasCompletedVatSetup)}
       >
         {isStepCompletionLoading ? 'Saving...' : 'Mark This Step as Complete & Continue'}

@@ -3,7 +3,7 @@
 import React from 'react';
 import Layout from '@/components/layout/Layout';
 import { OnboardingProvider, useOnboarding } from '@/contexts/OnboardingContext';
-import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
+import { useAuth } from '@/contexts/AuthContext'; 
 
 // Import actual components that will be re-created
 import BolApiForm from '@/components/onboarding/BolApiForm';
