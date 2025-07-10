@@ -24,21 +24,33 @@ const OnboardingStepStatus = ({ label, completed }) => (
 
 // This component will hold the actual onboarding steps logic
 const OnboardingSteps = () => {
-  const { onboardingStatus, isLoading, error } = useOnboarding();
+  const { onboardingStatus, isLoading, error, markStepAsComplete } = useOnboarding();
+  const [currentStepIndex, setCurrentStepIndex] = React.useState(0);
 
-  if (isLoading) { // This is isLoading from OnboardingContext
+  // Define the sequence of onboarding steps
+  const onboardingFlowSteps = React.useMemo(() => [
+    { key: 'hasConfiguredBolApi', title: 'Connect Bol.com Account', Component: BolApiForm },
+    { key: 'hasCompletedShopSync', title: 'Initial Shop Synchronization', Component: ShopSync },
+    { key: 'hasCompletedVatSetup', title: 'VAT Configuration', Component: VatSetup },
+    { key: 'hasCompletedInvoiceSetup', title: 'Invoice Details Setup', Component: InvoiceSettingsForm },
+  ], []);
+
+  React.useEffect(() => {
+    if (onboardingStatus) {
+      const firstIncompleteStep = onboardingFlowSteps.findIndex(step => !onboardingStatus[step.key]);
+      setCurrentStepIndex(firstIncompleteStep !== -1 ? firstIncompleteStep : onboardingFlowSteps.length); // Go to "completed" state if all done
+    }
+  }, [onboardingStatus, onboardingFlowSteps]);
+
+  if (isLoading) {
     return <div className="text-center py-10"><div className="text-lg">Loading onboarding data...</div></div>;
   }
 
-  if (error) { // This is error from OnboardingContext
+  if (error) {
     return <div className="text-center py-10 text-red-600"><div className="text-lg font-semibold">Error loading onboarding data:</div><p>{error}</p></div>;
   }
 
-  const allStepsComplete =
-    onboardingStatus.hasConfiguredBolApi &&
-    onboardingStatus.hasCompletedShopSync &&
-    onboardingStatus.hasCompletedVatSetup &&
-    onboardingStatus.hasCompletedInvoiceSetup;
+  const allStepsComplete = currentStepIndex >= onboardingFlowSteps.length;
 
   if (allStepsComplete) {
     return (
@@ -50,6 +62,36 @@ const OnboardingSteps = () => {
     );
   }
 
+  const ActiveStepComponent = onboardingFlowSteps[currentStepIndex]?.Component;
+  // const activeStepKey = onboardingFlowSteps[currentStepIndex]?.key; // No longer needed for parent "Next" button logic
+
+  const handlePrev = () => {
+    if (currentStepIndex > 0) {
+      setCurrentStepIndex(currentStepIndex - 1);
+    }
+  };
+
+  // Stepper UI (simplified)
+  const StepperUI = () => (
+    <div className="mb-8 p-4 border rounded-lg wg-box">
+      <h3 className="text-lg font-semibold mb-3">Onboarding Progress</h3>
+      <ol className="items-center w-full space-y-4 sm:flex sm:space-x-8 sm:space-y-0 rtl:space-x-reverse">
+        {onboardingFlowSteps.map((step, index) => (
+          <li key={step.key} className={`flex items-center space-x-2.5 rtl:space-x-reverse ${index === currentStepIndex ? 'text-blue-600 dark:text-blue-500' : (onboardingStatus[step.key] ? 'text-green-600 dark:text-green-500' : 'text-gray-500 dark:text-gray-400')}`}>
+            <span className={`flex items-center justify-center w-8 h-8 border rounded-full shrink-0 ${index === currentStepIndex ? 'border-blue-600 dark:border-blue-500' : (onboardingStatus[step.key] ? 'border-green-600 dark:border-green-500' : 'border-gray-500 dark:border-gray-400')}`}>
+              {onboardingStatus[step.key] && index < currentStepIndex ? '✓' : index + 1}
+            </span>
+            <span>
+              <h3 className="font-medium leading-tight">{step.title}</h3>
+              <p className="text-sm">{index === currentStepIndex ? 'Current Step' : (onboardingStatus[step.key] ? 'Completed' : 'Pending')}</p>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+
+
   return (
     <div className="space-y-8">
       <div className="text-center">
@@ -57,20 +99,40 @@ const OnboardingSteps = () => {
         <p className="text-gray-600 mt-2">Follow the steps below to configure your account.</p>
       </div>
 
-      <div className="p-6 bg-white border border-gray-200 rounded-lg shadow-md wg-box">
-        <h3 className="text-xl font-semibold text-gray-700 mb-4">Your Onboarding Progress:</h3>
-        <ul className="space-y-2">
-          <OnboardingStepStatus label="Connect Bol.com Account" completed={onboardingStatus.hasConfiguredBolApi} />
-          <OnboardingStepStatus label="Initial Shop Synchronization" completed={onboardingStatus.hasCompletedShopSync} />
-          <OnboardingStepStatus label="VAT Settings Configuration" completed={onboardingStatus.hasCompletedVatSetup} />
-          <OnboardingStepStatus label="Invoice Details Setup" completed={onboardingStatus.hasCompletedInvoiceSetup} />
-        </ul>
-      </div>
+      <StepperUI />
 
-      {!onboardingStatus.hasConfiguredBolApi && <BolApiForm />}
-      {onboardingStatus.hasConfiguredBolApi && !onboardingStatus.hasCompletedShopSync && <ShopSync />}
-      {onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && !onboardingStatus.hasCompletedVatSetup && <VatSetup />}
-      {onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup && !onboardingStatus.hasCompletedInvoiceSetup && <InvoiceSettingsForm />}
+      {/* Render the active step component */}
+      {ActiveStepComponent && (
+        <div className="wg-box p-6 rounded-lg shadow-md">
+          {/* Pass navigation handlers to step components if they need to trigger navigation directly */}
+          {/* For now, VatSetup has its own internal completion button */}
+          <ActiveStepComponent
+            onComplete={() => { // A generic onComplete prop
+                // This ensures status is updated before trying to navigate.
+                // Child component calls markStepAsComplete, then this onComplete.
+                if (currentStepIndex < onboardingFlowSteps.length - 1) {
+                    setCurrentStepIndex(currentStepIndex + 1);
+                } else {
+                    setCurrentStepIndex(onboardingFlowSteps.length); // All steps done
+                }
+            }}
+          />
+        </div>
+      )}
+
+      {/* Navigation Buttons, shown if not all steps are complete */}
+      {!allStepsComplete && ActiveStepComponent && (
+        <div className="flex justify-start mt-8"> {/* Changed to justify-start as "Next" is removed */}
+          <button
+            onClick={handlePrev}
+            disabled={currentStepIndex === 0}
+            className="tf-button style-1 disabled:opacity-50" // Assuming style-1 is for secondary/previous
+          >
+            Previous
+          </button>
+          {/* "Next" button removed from parent. Child components' primary actions will trigger onComplete. */}
+        </div>
+      )}
     </div>
   );
 };
