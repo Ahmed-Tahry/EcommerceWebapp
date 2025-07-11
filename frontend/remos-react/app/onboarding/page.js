@@ -72,8 +72,20 @@ const OnboardingStepContent = ({ currentStep }) => {
 
 // Component to handle onboarding steps with ProgressBar
 const OnboardingSteps = () => {
-  const { onboardingStatus, isLoading, error } = useOnboarding();
-  console.log(onboardingStatus.hasCompletedShopSync)
+  const { onboardingStatus, isLoading: isContextLoading, error } = useOnboarding();
+  const [hasPerformedInitialLoad, setHasPerformedInitialLoad] = React.useState(false);
+
+  React.useEffect(() => {
+    // If context is not loading (i.e., initial fetch attempt is complete or wasn't needed)
+    // and we haven't marked initial load as done, then mark it.
+    if (!isContextLoading && !hasPerformedInitialLoad) {
+      setHasPerformedInitialLoad(true);
+    }
+  }, [isContextLoading, hasPerformedInitialLoad]);
+
+  // Show full page loader if context is loading AND initial load sequence hasn't completed yet.
+  const showFullPageLoader = isContextLoading && !hasPerformedInitialLoad;
+
   // Calculate current step based on onboarding status
   const getCurrentStep = () => {
     if (!onboardingStatus.hasConfiguredBolApi) return 1;
@@ -85,7 +97,8 @@ const OnboardingSteps = () => {
 
   const currentStep = getCurrentStep();
 
-  if (isLoading) {
+  // Show full-page loader only during the true initial fetch of onboarding status
+  if (showFullPageLoader) {
     return (
       <div className="text-center py-10">
         <div className="text-lg">Loading onboarding data...</div>
@@ -93,7 +106,8 @@ const OnboardingSteps = () => {
     );
   }
 
-  if (error) {
+  // Handle errors fetching onboarding status (can occur during initial load or later)
+  if (error && !hasPerformedInitialLoad) { // Only show full page error if initial load failed
     return (
       <div className="text-center py-10 text-red-600">
         <div className="text-lg font-semibold">Error loading onboarding data:</div>
