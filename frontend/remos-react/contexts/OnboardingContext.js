@@ -36,6 +36,7 @@ export const OnboardingProvider = ({ children }) => {
     try {
       // callApi will now use the token via keycloakService
       const data = await callApi('/settings/settings/onboarding/status', 'GET');
+      console.log(data)
       setOnboardingStatus(prevStatus => ({ ...prevStatus, ...data }));
     } catch (err) {
       console.error('Failed to fetch onboarding status:', err);
@@ -65,8 +66,13 @@ export const OnboardingProvider = ({ children }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const updatedStatus = await callApi('/settings/settings/onboarding/step', 'POST', stepPayload);
-      setOnboardingStatus(prevStatus => ({ ...prevStatus, ...updatedStatus }));
+const updatedStatus = await callApi('/settings/settings/onboarding/step', 'POST', stepPayload);
+console.log('API response for updateOnboardingStep:', updatedStatus);
+setOnboardingStatus(prevStatus => {
+  const newStatus = { ...prevStatus, ...updatedStatus };
+  console.log('Updated onboardingStatus:', newStatus);
+  return newStatus;
+});
       return updatedStatus;
     } catch (err) {
       console.error('Failed to update onboarding step:', err);

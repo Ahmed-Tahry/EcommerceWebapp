@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { callApi } from '@/utils/api';
 
-export default function BolApiForm({ onComplete }) { // Added onComplete prop
+export default function BolApiForm() {
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -27,7 +27,7 @@ export default function BolApiForm({ onComplete }) { // Added onComplete prop
 
       await markStepAsComplete('hasConfiguredBolApi');
       setSuccessMessage(prev => prev + 'Onboarding step updated.');
-      if (onComplete) onComplete(); // Call onComplete on success
+
     } catch (err) {
       console.error('Failed to configure Bol.com API:', err);
       const errorMessage = (err && err.message) ? err.message : String(err);

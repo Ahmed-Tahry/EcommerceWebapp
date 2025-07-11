@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { callApi } from '@/utils/api';
 
-export default function ShopSync({ onComplete }) { // Added onComplete prop
+export default function ShopSync() {
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
   const [syncStatus, setSyncStatus] = useState({
     orders: '',
@@ -12,7 +12,7 @@ export default function ShopSync({ onComplete }) { // Added onComplete prop
   });
   const [isLoadingStepCompletion, setIsLoadingStepCompletion] = useState(false);
   const [error, setError] = useState(null);
-  const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+  const [isSyncingOrders, setIsSyncingOrders] = useState(true);
   const [isSyncingOffers, setIsSyncingOffers] = useState(false);
 
   const handleSyncOrders = async () => {
@@ -37,8 +37,10 @@ export default function ShopSync({ onComplete }) { // Added onComplete prop
     setSyncStatus(prev => ({ ...prev, offers: 'Requesting offer export from Bol.com...' }));
     setError(null);
     try {
-      await callApi('/shop/api/shop/offers/export/csv', 'GET');
+      const response = await callApi('/shop/api/shop/offers/export/csv', 'GET');
+      console.log(response)
       setSyncStatus(prev => ({ ...prev, offers: 'Offer export and sync initiated. This may take some time.' }));
+      console.log(offers)
     } catch (err) {
       console.error('Failed to sync offers:', err);
       const errorMessage = (err && err.message) ? err.message : String(err);
@@ -54,7 +56,6 @@ export default function ShopSync({ onComplete }) { // Added onComplete prop
     setError(null);
     try {
       await markStepAsComplete('hasCompletedShopSync');
-      if (onComplete) onComplete(); // Call onComplete on success
     } catch (err) {
       console.error('Failed to mark shop sync as complete:', err);
       const errorMessage = (err && err.message) ? err.message : String(err);
@@ -66,8 +67,7 @@ export default function ShopSync({ onComplete }) { // Added onComplete prop
 
   const bingo1 = syncStatus.orders.startsWith('Order sync initiated');
   const bingo2 = syncStatus.offers.startsWith('Offer export and sync initiated');
-  const canCompleteStep = bingo1 && bingo2;
-
+  const canCompleteStep = true;
   if (onboardingStatus && onboardingStatus.hasCompletedShopSync) {
     return (
       <div className="p-6 bg-white border border-gray-200 rounded-lg shadow-md wg-box">
@@ -88,7 +88,7 @@ export default function ShopSync({ onComplete }) { // Added onComplete prop
       {error && <div className="p-3 mb-4 bg-red-100 border border-red-300 text-red-700 rounded-md">{error}</div>}
 
       <div className="space-y-4 mb-6">
-        <div>
+        {/* <div>
           <button
             onClick={handleSyncOrders}
             className="tf-button style-1 w-full sm:w-auto mr-2"
@@ -97,7 +97,7 @@ export default function ShopSync({ onComplete }) { // Added onComplete prop
             {isSyncingOrders ? 'Syncing Orders...' : 'Sync Bol.com Orders'}
           </button>
           {syncStatus.orders && <p className={`text-sm mt-2 ${syncStatus.orders.includes('Error') ? 'text-red-600' : 'text-gray-600'}`}>{syncStatus.orders}</p>}
-        </div>
+        </div> */}
 
         <div>
           <button
@@ -119,7 +119,7 @@ export default function ShopSync({ onComplete }) { // Added onComplete prop
       <button
         onClick={handleCompleteShopSyncStep}
         className="tf-button w-full sm:w-auto"
-        // disabled={isLoadingStepCompletion || (onboardingStatus && onboardingStatus.hasCompletedShopSync) || !canCompleteStep}
+         //disabled={isLoadingStepCompletion || (onboardingStatus && onboardingStatus.hasCompletedShopSync) || !canCompleteStep}
       >
         {isLoadingStepCompletion ? 'Saving...' : 'Mark Shop Sync as Complete'}
       </button>

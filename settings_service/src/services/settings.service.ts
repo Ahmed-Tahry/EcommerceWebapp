@@ -58,11 +58,12 @@ export async function saveAccountDetails(
 export async function getOnboardingStatus(userId: string): Promise<IUserOnboardingStatus | null> {
   const pool = getDBPool();
   try {
-    const result = await pool.query(
-      'SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", created_at AS "createdAt", updated_at AS "updatedAt" FROM user_onboarding_status WHERE user_id = $1',
-      [userId]
-    );
+const result = await pool.query(
+  'SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_vat_setup AS "hasCompletedVatSetup", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt" FROM user_onboarding_status WHERE user_id = $1',
+  [userId]
+);
     if (result.rows.length > 0) {
+      console
       return result.rows[0];
     }
     // If no record, create a default one with all steps false
@@ -73,6 +74,7 @@ export async function getOnboardingStatus(userId: string): Promise<IUserOnboardi
       hasCompletedVatSetup: false,
       hasCompletedInvoiceSetup: false,
     };
+    console.log(createOrUpdateOnboardingStatus(defaultStatus))
     return createOrUpdateOnboardingStatus(defaultStatus);
 
   } catch (error) {

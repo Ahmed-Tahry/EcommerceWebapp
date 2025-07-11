@@ -497,7 +497,7 @@ export async function syncProductsFromOffersAndRetailerApi(userId: string): Prom
         productData = { ...productData, ...retailerDetails };
         // Assuming data from this endpoint implies a sync from Bol, so set lastSyncFromBol
         productData.lastSyncFromBol = new Date();
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 500));
       } else {
         console.warn(`No details found from Bol.com retailer API for EAN ${ean}. Product will be created/updated with minimal info.`);
       }

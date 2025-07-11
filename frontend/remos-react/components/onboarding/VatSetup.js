@@ -5,7 +5,7 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 import { callApi } from '@/utils/api';
 
 
-export default function VatSetup({ onComplete }) { // Added onComplete prop
+export default function VatSetup() {
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
 
   // State for this com ponent
@@ -122,7 +122,6 @@ const handleUpdateVat = async (ean) => {
     setStepCompletionError(null);
     try {
       await markStepAsComplete('hasCompletedVatSetup');
-      if (onComplete) onComplete(); // Call onComplete on success
       // Optionally re-fetch products or clear list if needed after step completion
     } catch (err) {
       console.error('Failed to mark VAT setup as complete:', err);

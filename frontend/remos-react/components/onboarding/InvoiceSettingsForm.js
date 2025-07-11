@@ -13,7 +13,7 @@ const initialFormData = {
   nextInvoiceNumber: 1,
 };
 
-export default function InvoiceSettingsForm({ onComplete }) { // Added onComplete prop
+export default function InvoiceSettingsForm() {
   const { markStepAsComplete, onboardingStatus } = useOnboarding();
   const [formData, setFormData] = useState(initialFormData);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +49,7 @@ export default function InvoiceSettingsForm({ onComplete }) { // Added onComplet
 
       await markStepAsComplete('hasCompletedInvoiceSetup');
       setSuccessMessage(prev => prev + 'Onboarding step updated.');
-      if (onComplete) onComplete(); // Call onComplete on success
+
     } catch (err) {
       console.error('Failed to save invoice settings:', err);
       const errorMessage = (err && err.message) ? err.message : String(err);
