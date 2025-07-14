@@ -137,3 +137,34 @@ services:
       postgres-db:
         condition: service_healthy
     restart: unless-stopped
+
+  invoice_service:
+    build:
+      context: ./invoice_service
+      dockerfile: Dockerfile
+    container_name: invoice_service
+    ports:
+      - "3002:3000" # Different port than other services
+    volumes:
+      - ./invoice_service:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DB_HOST=postgres-db
+      - DB_USER=keycloakadmin
+      - DB_PASSWORD=StrongPassword123!
+      - DB_NAME=InvoiceDb
+      - DB_PORT=5432
+      - SETTINGS_SERVICE_URL=http://settings_service:3000
+      - SHOP_SERVICE_URL=http://shop_service:3000
+    networks:
+      - keycloak_network
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      settings_service:
+        condition: service_started
+      shop_service:
+        condition: service_started
+    restart: unless-stopped

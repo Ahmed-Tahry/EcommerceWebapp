@@ -52,6 +52,7 @@
   border-radius: 9999px; /* rounded-full */
   transform: translateY(-50%);
   transition: width 0.7s ease-out; /* transition-all duration-700 ease-out */
+  will-change: width; /* Optimize for animations */
 }
 
 .stepIndicators {
@@ -104,6 +105,16 @@
   background-color: #cbd5e0; /* hover:bg-gray-300 */
 }
 
+.circleIndicator.clickable {
+  cursor: pointer;
+  transition: all 0.3s ease-out;
+}
+
+.circleIndicator.clickable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+}
+
 .checkIcon {
   width: 1.25rem; /* w-5 */
   height: 1.25rem; /* h-5 */
@@ -129,6 +140,15 @@
   color: #6b7280; /* text-gray-500 */
 }
 
+.stepTitle.accessible {
+  color: #4a5568; /* text-gray-700 */
+  cursor: pointer;
+}
+
+.stepTitle.accessible:hover {
+  color: #2d3748; /* text-gray-800 */
+}
+
 .stepDescription {
   font-size: 0.75rem; /* text-xs */
   margin-top: 0.25rem; /* mt-1 */
@@ -141,6 +161,10 @@
 
 .stepDescription.inactive {
   color: #a0aec0; /* text-gray-400 */
+}
+
+.stepDescription.accessible {
+  color: #718096; /* text-gray-500 */
 }
 
 .currentStepContent {
@@ -176,6 +200,7 @@
   height: 0.5rem; /* h-2 */
   border-radius: 9999px; /* rounded-full */
   transition: width 0.7s ease-out; /* transition-all duration-700 ease-out */
+  will-change: width; /* Optimize for animations */
 }
 
 .completionText {
@@ -207,6 +232,16 @@
   opacity: 0.5; /* disabled:opacity-50 */
   cursor: not-allowed; /* disabled:cursor-not-allowed */
   transform: scale(1); /* disabled:hover:scale-100 */
+}
+
+.buttonBase.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: scale(1);
+}
+
+.buttonBase.disabled:hover {
+  transform: scale(1);
 }
 
 .prevButton {

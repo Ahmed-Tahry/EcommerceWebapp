@@ -27,7 +27,7 @@ export interface IVatSetting {
 }
 
 export interface IInvoiceSettings {
-  id: string; // Should be a fixed value like 'primary' for single-row lookup
+  userId: string; // User ID (primary key)
   companyName: string | null;
   companyAddress: string | null; // Could be structured address object later
   vatNumber: string | null;

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import Layout from '@/components/layout/Layout';
 import { OnboardingProvider, useOnboarding } from '@/contexts/OnboardingContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,71 +19,54 @@ const steps = [
   { id: 5, title: "Complete", description: "All done!" },
 ];
 
-// Component to render the appropriate form based on current step
-const OnboardingStepContent = ({ currentStep }) => {
+// Memoized component to render the appropriate form based on current step
+const OnboardingStepContent = React.memo(({ currentStep }) => {
   const { onboardingStatus } = useOnboarding();
 
-  if (currentStep === 1 && !onboardingStatus.hasConfiguredBolApi) {
-    return <BolApiForm />;
-  }
-  if (currentStep === 2 && onboardingStatus.hasConfiguredBolApi && !onboardingStatus.hasCompletedShopSync) {
-    return <ShopSync />;
-  }
-  if (
-    currentStep === 3 &&
-    onboardingStatus.hasConfiguredBolApi &&
-    onboardingStatus.hasCompletedShopSync &&
-    !onboardingStatus.hasCompletedVatSetup
-  ) {
-    return <VatSetup />;
-  }
-  if (
-    currentStep === 4 &&
-    onboardingStatus.hasConfiguredBolApi &&
-    onboardingStatus.hasCompletedShopSync &&
-    onboardingStatus.hasCompletedVatSetup &&
-    !onboardingStatus.hasCompletedInvoiceSetup
-  ) {
-    return <InvoiceSettingsForm />;
-  }
-  if (currentStep === 5) {
-    return (
-      <div className="text-center">
-        <svg
-        style={{ width: '150px', height: '150px' }}
-          className="w-16 h-16 mx-auto mb-4 text-green-500"
-          fill="currentColor"
-          viewBox="0 0 20 20"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-            clipRule="evenodd"
-          ></path>
-        </svg>
-        <h3 className="text-lg font-semibold mb-3">Onboarding Complete!</h3>
-        <p>Congratulations, you have completed all the onboarding steps. Your account is fully configured.</p>
-      </div>
-    );
-  }
-  return null;
-};
+  // Memoize the step content to prevent unnecessary re-renders
+  const stepContent = useMemo(() => {
+    switch (currentStep) {
+      case 1:
+        return <BolApiForm />;
+      case 2:
+        return <ShopSync />;
+      case 3:
+        return <VatSetup />;
+      case 4:
+        return <InvoiceSettingsForm />;
+      case 5:
+        return (
+          <div className="text-center">
+            <svg
+            style={{ width: '150px', height: '150px' }}
+              className="w-16 h-16 mx-auto mb-4 text-green-500"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              ></path>
+            </svg>
+            <h3 className="text-lg font-semibold mb-3">Onboarding Complete!</h3>
+            <p>Congratulations, you have completed all the onboarding steps. Your account is fully configured.</p>
+          </div>
+        );
+      default:
+        return null;
+    }
+  }, [currentStep, onboardingStatus]);
+
+  return stepContent;
+});
+
+OnboardingStepContent.displayName = 'OnboardingStepContent';
 
 // Component to handle onboarding steps with ProgressBar
 const OnboardingSteps = () => {
-  const { onboardingStatus, isLoading, error } = useOnboarding();
-  console.log(onboardingStatus.hasCompletedShopSync)
-  // Calculate current step based on onboarding status
-  const getCurrentStep = () => {
-    if (!onboardingStatus.hasConfiguredBolApi) return 1;
-    if (!onboardingStatus.hasCompletedShopSync) return 2;
-    if (!onboardingStatus.hasCompletedVatSetup) return 3;
-    if (!onboardingStatus.hasCompletedInvoiceSetup) return 4;
-    return 5;
-  };
-
-  const currentStep = getCurrentStep();
+  const { currentStep, isLoading, error } = useOnboarding();
 
   if (isLoading) {
     return (
@@ -108,7 +91,7 @@ const OnboardingSteps = () => {
         <h3 className="text-lg font-bold text-gray-800">Welcome! Let's get you set up.</h3>
         <p className="text-gray-600 mt-2">Follow the steps below to configure your account.</p>
       </div>
-      <ProgressBar currentStep={currentStep} steps={steps}>
+      <ProgressBar steps={steps}>
         <OnboardingStepContent currentStep={currentStep} />
       </ProgressBar>
     </div>

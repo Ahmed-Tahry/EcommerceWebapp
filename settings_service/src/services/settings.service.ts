@@ -3,8 +3,6 @@ import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus }
 // Pool type is not directly used, can be removed if not needed elsewhere.
 // import { Pool } from 'pg';
 
-const PRIMARY_KEY_VALUE = 'primary'; // For single-row tables like invoice_settings
-
 // Helper to convert camelCase to snake_case for DB columns
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -63,7 +61,6 @@ const result = await pool.query(
   [userId]
 );
     if (result.rows.length > 0) {
-      console
       return result.rows[0];
     }
     // If no record, create a default one with all steps false
@@ -74,8 +71,7 @@ const result = await pool.query(
       hasCompletedVatSetup: false,
       hasCompletedInvoiceSetup: false,
     };
-    console.log(createOrUpdateOnboardingStatus(defaultStatus))
-    return createOrUpdateOnboardingStatus(defaultStatus);
+    return await createOrUpdateOnboardingStatus(defaultStatus);
 
   } catch (error) {
     console.error(`Error fetching onboarding status for user ID ${userId}:`, error);
@@ -297,23 +293,15 @@ export async function deleteVatSetting(id: string): Promise<boolean> {
 
 // --- Invoice Settings Service ---
 
-export async function getInvoiceSettings(): Promise<IInvoiceSettings | null> {
+export async function getInvoiceSettings(userId: string): Promise<IInvoiceSettings | null> {
   const pool = getDBPool();
   try {
     const result = await pool.query(
-      'SELECT id, company_name AS "companyName", company_address AS "companyAddress", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes", invoice_prefix AS "invoicePrefix", next_invoice_number AS "nextInvoiceNumber", created_at AS "createdAt", updated_at AS "updatedAt" FROM invoice_settings WHERE id = $1', [PRIMARY_KEY_VALUE]);
+      'SELECT user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes", invoice_prefix AS "invoicePrefix", next_invoice_number AS "nextInvoiceNumber", created_at AS "createdAt", updated_at AS "updatedAt" FROM invoice_settings WHERE user_id = $1', [userId]);
     if (result.rows.length > 0) {
       return result.rows[0];
     }
-     // If 'primary' row doesn't exist, attempt to create it with nulls
-    console.warn(`Primary invoice_settings row not found. Attempting to create with default values.`);
-    const insertQuery = `
-        INSERT INTO invoice_settings (id)
-        VALUES ($1)
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id, company_name AS "companyName", company_address AS "companyAddress", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes", invoice_prefix AS "invoicePrefix", next_invoice_number AS "nextInvoiceNumber", created_at AS "createdAt", updated_at AS "updatedAt";`;
-    const insertResult = await pool.query(insertQuery, [PRIMARY_KEY_VALUE]);
-    if (insertResult.rows.length > 0) return insertResult.rows[0];
+    // If no record exists for this user, return null (let the controller handle creation)
     return null;
 
   } catch (error) {
@@ -322,7 +310,7 @@ export async function getInvoiceSettings(): Promise<IInvoiceSettings | null> {
   }
 }
 
-export async function saveInvoiceSettings(settings: Partial<Omit<IInvoiceSettings, 'id' | 'createdAt' | 'updatedAt'>>): Promise<IInvoiceSettings> {
+export async function saveInvoiceSettings(userId: string, settings: Partial<Omit<IInvoiceSettings, 'userId' | 'createdAt' | 'updatedAt'>>): Promise<IInvoiceSettings> {
   const pool = getDBPool();
 
   // Explicitly map fields to avoid issues with extra properties
@@ -334,37 +322,37 @@ export async function saveInvoiceSettings(settings: Partial<Omit<IInvoiceSetting
   if(settings.invoicePrefix !== undefined) updateData.invoicePrefix = settings.invoicePrefix;
   if(settings.nextInvoiceNumber !== undefined) updateData.nextInvoiceNumber = settings.nextInvoiceNumber;
 
-
   const setClauses = Object.keys(updateData)
     .map((key, i) => `"${toSnakeCase(key)}" = $${i + 1}`)
     .join(', ');
 
   if (setClauses.length === 0 && Object.keys(settings).length > 0) {
-     const currentSettings = await getInvoiceSettings();
+     const currentSettings = await getInvoiceSettings(userId);
      if(!currentSettings) throw new Error("Failed to retrieve current invoice settings after no-op save.");
      return currentSettings;
   }
    if (setClauses.length === 0) { // No data provided at all
-    const currentSettings = await getInvoiceSettings();
-    if (!currentSettings) throw new Error("Primary invoice_settings row missing and could not be created.");
+    const currentSettings = await getInvoiceSettings(userId);
+    if (!currentSettings) throw new Error("User invoice settings not found and could not be created.");
     return currentSettings;
   }
 
   const values = Object.values(updateData);
-  values.push(PRIMARY_KEY_VALUE);
+  values.push(userId);
 
   const query = `
-    UPDATE invoice_settings
-    SET ${setClauses}, updated_at = NOW()
-    WHERE id = $${values.length}
-    RETURNING id, company_name AS "companyName", company_address AS "companyAddress", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes", invoice_prefix AS "invoicePrefix", next_invoice_number AS "nextInvoiceNumber", created_at AS "createdAt", updated_at AS "updatedAt";
+    INSERT INTO invoice_settings (user_id, ${Object.keys(updateData).map(key => `"${toSnakeCase(key)}"`).join(', ')})
+    VALUES ($${values.length}, ${Object.keys(updateData).map((_, i) => `$${i + 1}`).join(', ')})
+    ON CONFLICT (user_id) DO UPDATE SET
+      ${setClauses}, updated_at = NOW()
+    RETURNING user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes", invoice_prefix AS "invoicePrefix", next_invoice_number AS "nextInvoiceNumber", created_at AS "createdAt", updated_at AS "updatedAt";
   `;
   try {
     const result = await pool.query(query, values);
      if (result.rows.length > 0) {
         return result.rows[0];
     }
-    const currentSettings = await getInvoiceSettings();
+    const currentSettings = await getInvoiceSettings(userId);
     if (!currentSettings) throw new Error("Invoice settings not found and could not be saved/retrieved.");
     return currentSettings;
 

@@ -212,12 +212,13 @@ export const deleteVatSettingHandler = async (req: Request, res: Response, next:
 // --- Invoice Settings Handlers ---
 export const getInvoiceSettingsHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const settings = await SettingsService.getInvoiceSettings();
-     if (settings) {
-      res.status(200).json(settings);
-    } else {
-      res.status(404).json({ message: 'Invoice settings not found or initialized.' });
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
     }
+
+    const settings = await SettingsService.getInvoiceSettings(userId);
+    res.status(200).json(settings);
   } catch (error) {
     next(error);
   }
@@ -225,8 +226,13 @@ export const getInvoiceSettingsHandler = async (req: Request, res: Response, nex
 
 export const saveInvoiceSettingsHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
     const { companyName, companyAddress, vatNumber, defaultInvoiceNotes, invoicePrefix, nextInvoiceNumber } = req.body;
-    const settingsToSave: Partial<Omit<IInvoiceSettings, 'id' | 'createdAt' | 'updatedAt'>> = {};
+    const settingsToSave: Partial<Omit<IInvoiceSettings, 'userId' | 'createdAt' | 'updatedAt'>> = {};
 
     if(companyName !== undefined) settingsToSave.companyName = companyName; // Allow null/empty string to clear
     if(companyAddress !== undefined) settingsToSave.companyAddress = companyAddress;
@@ -245,12 +251,11 @@ export const saveInvoiceSettingsHandler = async (req: Request, res: Response, ne
     }
      if (Object.keys(settingsToSave).length === 0 && Object.keys(req.body).length === 0) {
          // Empty request body
-        const currentSettings = await SettingsService.getInvoiceSettings();
+        const currentSettings = await SettingsService.getInvoiceSettings(userId);
         return res.status(200).json(currentSettings); // Or 400 if empty update is not allowed
     }
 
-
-    const savedSettings = await SettingsService.saveInvoiceSettings(settingsToSave);
+    const savedSettings = await SettingsService.saveInvoiceSettings(userId, settingsToSave);
     res.status(200).json(savedSettings);
   } catch (error) {
     next(error);

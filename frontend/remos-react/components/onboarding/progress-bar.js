@@ -1,10 +1,41 @@
 "use client"
 
 import { ChevronLeft, ChevronRight, Check } from "lucide-react"
+import { useOnboarding } from '@/contexts/OnboardingContext'
 import styles from "./progress-bar.module.css"
 
-export default function ProgressBar({ currentStep, steps, children }) {
+export default function ProgressBar({ steps, children }) {
+  const { 
+    currentStep, 
+    onboardingStatus, 
+    isStepComplete, 
+    canGoToStep, 
+    canGoNext, 
+    canGoPrevious,
+    goToStep,
+    goToNextStep,
+    goToPreviousStep
+  } = useOnboarding();
+  
   const progressPercentage = ((currentStep - 1) / (steps.length - 1)) * 100
+
+  const handleNext = () => {
+    if (canGoNext()) {
+      goToNextStep();
+    }
+  };
+
+  const handlePrevious = () => {
+    if (canGoPrevious()) {
+      goToPreviousStep();
+    }
+  };
+
+  const handleStepClick = (stepId) => {
+    if (canGoToStep(stepId)) {
+      goToStep(stepId);
+    }
+  };
 
   return (
     <div className={styles.progressBarContainer}>
@@ -27,36 +58,50 @@ export default function ProgressBar({ currentStep, steps, children }) {
         {/* Step Indicators */}
         <div className={styles.stepIndicators}>
           {steps.map((step, index) => {
-            const isCompleted = currentStep > step.id
-            const isCurrent = currentStep === step.id
+            const isCompleted = isStepComplete(step.id);
+            const isCurrent = currentStep === step.id;
+            const isAccessible = canGoToStep(step.id);
 
-            let circleClasses = styles.circleIndicator
+            let circleClasses = styles.circleIndicator;
             if (isCompleted) {
-              circleClasses += ` ${styles.completed}`
+              circleClasses += ` ${styles.completed}`;
             } else if (isCurrent) {
-              circleClasses += ` ${styles.current}`
+              circleClasses += ` ${styles.current}`;
             } else {
-              circleClasses += ` ${styles.default}`
+              circleClasses += ` ${styles.default}`;
             }
 
-            let titleClasses = styles.stepTitle
-            if (isCompleted || isCurrent) {
-              titleClasses += ` ${styles.active}`
-            } else {
-              titleClasses += ` ${styles.inactive}`
+            // Add clickable class if step is accessible
+            if (isAccessible) {
+              circleClasses += ` ${styles.clickable}`;
             }
 
-            let descriptionClasses = styles.stepDescription
+            let titleClasses = styles.stepTitle;
             if (isCompleted || isCurrent) {
-              descriptionClasses += ` ${styles.active}`
+              titleClasses += ` ${styles.active}`;
+            } else if (isAccessible) {
+              titleClasses += ` ${styles.accessible}`;
             } else {
-              descriptionClasses += ` ${styles.inactive}`
+              titleClasses += ` ${styles.inactive}`;
+            }
+
+            let descriptionClasses = styles.stepDescription;
+            if (isCompleted || isCurrent) {
+              descriptionClasses += ` ${styles.active}`;
+            } else if (isAccessible) {
+              descriptionClasses += ` ${styles.accessible}`;
+            } else {
+              descriptionClasses += ` ${styles.inactive}`;
             }
 
             return (
               <div key={step.id} className={styles.stepItem}>
                 {/* Circle Indicator */}
-                <div className={circleClasses}>
+                <div 
+                  className={circleClasses}
+                  onClick={() => handleStepClick(step.id)}
+                  title={isAccessible ? `Go to step ${step.id}` : 'Step not available yet'}
+                >
                   {isCompleted ? <Check className={styles.checkIcon} /> : <span>{step.id}</span>}
                 </div>
 
@@ -87,9 +132,13 @@ export default function ProgressBar({ currentStep, steps, children }) {
         </div>
       </div>
 
-      {/* Navigation Buttons (Disabled) */}
+      {/* Navigation Buttons */}
       <div className={styles.navigationButtons}>
-        <button  className={`${styles.buttonBase} ${styles.prevButton} opacity-50 cursor-not-allowed`}>
+        <button 
+          onClick={handlePrevious}
+          disabled={!canGoPrevious()}
+          className={`${styles.buttonBase} ${styles.prevButton} ${!canGoPrevious() ? styles.disabled : ''}`}
+        >
           <ChevronLeft className="w-4 h-4" />
           Previous
         </button>
@@ -103,7 +152,11 @@ export default function ProgressBar({ currentStep, steps, children }) {
           ))}
         </div>
 
-        <button  className={`${styles.buttonBase} ${styles.nextButton} opacity-50 cursor-not-allowed`}>
+        <button 
+          onClick={handleNext}
+          disabled={!canGoNext()}
+          className={`${styles.buttonBase} ${styles.nextButton} ${!canGoNext() ? styles.disabled : ''}`}
+        >
           Next
           <ChevronRight className="w-4 h-4" />
         </button>

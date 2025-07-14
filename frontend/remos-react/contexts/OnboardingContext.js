@@ -19,7 +19,7 @@ const initialStatus = {
 
 export const OnboardingProvider = ({ children }) => {
   const [onboardingStatus, setOnboardingStatus] = useState(initialStatus);
-
+  const [currentStep, setCurrentStep] = useState(1); // Manual step navigation
   const [isLoading, setIsLoading] = useState(true); // Loading for onboarding data
   const [error, setError] = useState(null);
   const { authenticated, isLoading: authIsLoading, token } = useAuth(); // Get auth state
@@ -98,14 +98,76 @@ setOnboardingStatus(prevStatus => {
     return await updateOnboardingStep({ [stepName]: true });
   }, [updateOnboardingStep, onboardingStatus, authenticated]); // Add authenticated
 
+  // Manual navigation functions
+  const goToStep = useCallback((stepId) => {
+    if (stepId >= 1 && stepId <= 5) {
+      setCurrentStep(stepId);
+    }
+  }, []);
+
+  const goToNextStep = useCallback(() => {
+    if (currentStep < 5) {
+      setCurrentStep(currentStep + 1);
+    }
+  }, [currentStep]);
+
+  const goToPreviousStep = useCallback(() => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  }, [currentStep]);
+
+  // Helper functions for step validation
+  const isStepComplete = useCallback((stepId) => {
+    switch (stepId) {
+      case 1:
+        return onboardingStatus.hasConfiguredBolApi;
+      case 2:
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync;
+      case 3:
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup;
+      case 4:
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup && onboardingStatus.hasCompletedInvoiceSetup;
+      case 5:
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup && onboardingStatus.hasCompletedInvoiceSetup;
+      default:
+        return false;
+    }
+  }, [onboardingStatus]);
+
+  const canGoToStep = useCallback((stepId) => {
+    // Can always go to step 1
+    if (stepId === 1) return true;
+    
+    // For other steps, check if previous step is complete
+    return isStepComplete(stepId - 1);
+  }, [isStepComplete]);
+
+  const canGoNext = useCallback(() => {
+    // Can go next if current step is complete and there's a next step
+    return currentStep < 5 && isStepComplete(currentStep);
+  }, [currentStep, isStepComplete]);
+
+  const canGoPrevious = useCallback(() => {
+    // Can always go previous if not on first step
+    return currentStep > 1;
+  }, [currentStep]);
 
   const value = {
     onboardingStatus,
+    currentStep,
     isLoading,
     error,
     fetchOnboardingStatus,
     updateOnboardingStep,
-    markStepAsComplete
+    markStepAsComplete,
+    goToStep,
+    goToNextStep,
+    goToPreviousStep,
+    isStepComplete,
+    canGoToStep,
+    canGoNext,
+    canGoPrevious
   };
 
   return (

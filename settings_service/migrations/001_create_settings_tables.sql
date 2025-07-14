@@ -1,53 +1,66 @@
--- Migration to create products_vat and account_settings tables
+-- Migration to create the correct settings tables
 
 -- Drop tables if they exist (for easier re-running during development)
-DROP TABLE IF EXISTS products_vat CASCADE;
-DROP TABLE IF EXISTS account_settings CASCADE;
+DROP TABLE IF EXISTS vat_settings CASCADE;
+DROP TABLE IF EXISTS account_details CASCADE;
+DROP TABLE IF EXISTS user_onboarding_status CASCADE;
+DROP TABLE IF EXISTS invoice_settings CASCADE;
 
--- Create products_vat table
-CREATE TABLE products_vat (
-    "productId" TEXT PRIMARY KEY,
-    ean TEXT NOT NULL,
-    "productName" TEXT NOT NULL,
-    "basePrice" DECIMAL,
-    "vatRate" DECIMAL NOT NULL,
-    "vatCategory" TEXT,
-    "countryCode" TEXT NOT NULL,
-    "isCompound" BOOLEAN DEFAULT FALSE,
-    "appliesToShipping" BOOLEAN DEFAULT FALSE,
-    "createdDateTime" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedDateTime" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "isActive" BOOLEAN DEFAULT TRUE
+-- Create account_details table (per-user Bol.com credentials)
+CREATE TABLE account_details (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(255) UNIQUE NOT NULL,
+    bol_client_id VARCHAR(255),
+    bol_client_secret VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create account_settings table
-CREATE TABLE account_settings (
-    "accountId" TEXT PRIMARY KEY,
-    "accountName" TEXT NOT NULL,
-    "countryCode" TEXT NOT NULL,
-    "currencyCode" TEXT,
-    "defaultFulfilmentMethod" TEXT,
-    "vatRegistrationNumber" TEXT,
-    "createdDateTime" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedDateTime" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "isActive" BOOLEAN DEFAULT TRUE
+-- Create user_onboarding_status table
+CREATE TABLE user_onboarding_status (
+    user_id VARCHAR(255) PRIMARY KEY,
+    has_configured_bol_api BOOLEAN DEFAULT FALSE,
+    has_completed_shop_sync BOOLEAN DEFAULT FALSE,
+    has_completed_vat_setup BOOLEAN DEFAULT FALSE,
+    has_completed_invoice_setup BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Optional: Add indexes for frequently queried columns
-CREATE INDEX IF NOT EXISTS idx_products_vat_ean ON products_vat(ean);
-CREATE INDEX IF NOT EXISTS idx_products_vat_country_code ON products_vat("countryCode");
-CREATE INDEX IF NOT EXISTS idx_account_settings_country_code ON account_settings("countryCode");
+-- Create vat_settings table (system-wide VAT configurations)
+CREATE TABLE vat_settings (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    rate NUMERIC(5, 2) NOT NULL,
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
 
-COMMENT ON COLUMN products_vat."basePrice" IS 'Price excluding VAT';
-COMMENT ON COLUMN products_vat."vatRate" IS 'Percentage like 21.00 for 21% VAT';
-COMMENT ON COLUMN products_vat."vatCategory" IS 'e.g., ‘Standard’, ‘Reduced’, ‘Exempt’';
-COMMENT ON COLUMN products_vat."countryCode" IS 'e.g., ISO country code like ‘NL’ or ‘DE’ for VAT jurisdiction';
-COMMENT ON COLUMN products_vat."isCompound" IS 'Indicates if VAT is applied on top of other taxes';
-COMMENT ON COLUMN products_vat."appliesToShipping" IS 'Indicates if VAT applies to shipping costs';
-COMMENT ON COLUMN products_vat."isActive" IS 'Indicates if the product is available for sale';
+-- Create invoice_settings table (per-user invoice configurations)
+CREATE TABLE invoice_settings (
+    user_id VARCHAR(255) PRIMARY KEY,
+    company_name VARCHAR(255),
+    company_address TEXT,
+    company_phone VARCHAR(255),
+    company_email VARCHAR(255),
+    invoice_prefix VARCHAR(50),
+    vat_number VARCHAR(255),
+    default_invoice_notes TEXT,
+    next_invoice_number INTEGER DEFAULT 1,
+    bank_account VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
 
-COMMENT ON COLUMN account_settings."countryCode" IS 'Links to products_vat.countryCode for tax settings';
-COMMENT ON COLUMN account_settings."currencyCode" IS 'e.g., ‘EUR’, ‘USD’, for pricing';
-COMMENT ON COLUMN account_settings."defaultFulfilmentMethod" IS 'e.g., ‘FBB’ or ‘FBA’';
-COMMENT ON COLUMN account_settings."vatRegistrationNumber" IS 'For VAT compliance';
-COMMENT ON COLUMN account_settings."isActive" IS 'Indicates if the account is active';
+-- Add indexes for frequently queried columns
+CREATE INDEX IF NOT EXISTS idx_account_details_user_id ON account_details(user_id);
+CREATE INDEX IF NOT EXISTS idx_vat_settings_is_default ON vat_settings(is_default);
+CREATE INDEX IF NOT EXISTS idx_vat_settings_rate ON vat_settings(rate);
+CREATE INDEX IF NOT EXISTS idx_invoice_settings_user_id ON invoice_settings(user_id);
+
+-- Add comments for documentation
+COMMENT ON TABLE account_details IS 'Stores Bol.com API credentials per user';
+COMMENT ON TABLE user_onboarding_status IS 'Tracks user onboarding progress';
+COMMENT ON TABLE vat_settings IS 'System-wide VAT rate configurations';
+COMMENT ON TABLE invoice_settings IS 'Per-user invoice settings';
