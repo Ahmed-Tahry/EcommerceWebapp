@@ -64,8 +64,8 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
   const pool = getDBPool();
   // Using ON CONFLICT to handle potential duplicate EANs by updating existing record (upsert)
   const query = `
-    INSERT INTO products (ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    INSERT INTO products (ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate, "userId")
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT (ean) DO UPDATE SET
       title = EXCLUDED.title,
       description = EXCLUDED.description,
@@ -74,7 +74,8 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
       attributes = EXCLUDED.attributes,
       "lastSyncFromBol" = EXCLUDED."lastSyncFromBol",
       "lastSyncToBol" = EXCLUDED."lastSyncToBol",
-      vat_rate = EXCLUDED.vat_rate
+      vat_rate = EXCLUDED.vat_rate,
+      "userId" = EXCLUDED."userId"
     RETURNING *;
   `;
   const values = [
@@ -87,6 +88,7 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
     productData.lastSyncFromBol,
     productData.lastSyncToBol,
     productData.vatRate,
+    productData.userId || null,
   ];
   try {
     const result = await pool.query(query, values);
@@ -99,7 +101,7 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
 
 export async function getProductByEan(ean: string): Promise<IProduct | null> {
   const pool = getDBPool();
-  const query = 'SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate" FROM products WHERE ean = $1;';
+  const query = 'SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", "userId" FROM products WHERE ean = $1;';
   try {
     const result = await pool.query(query, [ean]);
     if (result.rows.length > 0) {
@@ -132,6 +134,9 @@ export async function updateProduct(ean: string, updateData: Partial<IProduct>):
       }
       if (key === 'vatRate') { // Map model key to db column key
         dbKey = 'vat_rate';
+      }
+      if (key === 'userId') {
+        dbKey = 'userId';
       }
       setClauses.push(`"${dbKey}" = $${valueCount++}`);
       values.push(value);
@@ -394,32 +399,32 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
   return Object.keys(productDetails).length > 1 ? productDetails : null;
 }
 
-export async function getAllProducts(page: number = 1, limit: number = 10): Promise<{ products: IProduct[], total: number, page: number, limit: number }> {
+export async function getAllProducts(userId: string, page: number = 1, limit: number = 10): Promise<{ products: IProduct[], total: number, page: number, limit: number }> {
   const pool = getDBPool();
   const offset = (page - 1) * limit;
 
   try {
-    // Query for the total count of products
-    const totalResult = await pool.query('SELECT COUNT(*) FROM products;');
+    // Query for the total count of products for this user
+    const totalResult = await pool.query('SELECT COUNT(*) FROM products WHERE "userId" = $1;', [userId]);
     const total = parseInt(totalResult.rows[0].count, 10);
 
-    // Query for the paginated products
+    // Query for the paginated products for this user
     const productsQuery = `
-      SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate"
+      SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", "userId"
       FROM products
-      ORDER BY title ASC NULLS LAST, ean ASC -- Added a default sort order
-      LIMIT $1 OFFSET $2;
+      WHERE "userId" = $1
+      ORDER BY title ASC NULLS LAST, ean ASC
+      LIMIT $2 OFFSET $3;
     `;
-    const productsResult = await pool.query(productsQuery, [limit, offset]);
+    const productsResult = await pool.query(productsQuery, [userId, limit, offset]);
 
     const products: IProduct[] = productsResult.rows.map(p => {
-      // Ensure attributes are parsed if stored as JSON string
       if (p.attributes && typeof p.attributes === 'string') {
         try {
           p.attributes = JSON.parse(p.attributes);
         } catch (e) {
           console.error(`Error parsing attributes for EAN ${p.ean}:`, e);
-          p.attributes = null; // Or some error state
+          p.attributes = null;
         }
       }
       return p as IProduct;
@@ -518,7 +523,7 @@ export async function syncProductsFromOffersAndRetailerApi(userId: string): Prom
       // Set vatRate to null initially, to be updated manually via settings service
       productData.vatRate = null;
 
-      await createProduct(productData as IProduct); // createProduct handles upsert
+      await createProduct({... productData,userId} as IProduct); // createProduct handles upsert
       console.log(`Successfully created/updated product for EAN ${ean}.`);
       summary.success++;
     } catch (error: any) {

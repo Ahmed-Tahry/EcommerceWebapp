@@ -1,6 +1,6 @@
 'use client'; // This directive is needed for Next.js App Router components that use client-side features like Context and hooks
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { callApi } from '@/utils/api'; // Assuming jsconfig.json paths are set up for @/
 import { useAuth } from '@/contexts/AuthContext'; // Importing the Auth context to get authentication state
 const OnboardingContext = createContext();
@@ -17,12 +17,40 @@ const initialStatus = {
   updatedAt: null,
 };
 
+// Helper to determine current step from onboardingStatus
+const getStepFromStatus = (status) => {
+  if (!status.hasConfiguredBolApi) return 1;
+  if (!status.hasCompletedShopSync) return 2;
+  if (!status.hasCompletedVatSetup) return 3;
+  if (!status.hasCompletedInvoiceSetup) return 4;
+  return 5;
+};
+
 export const OnboardingProvider = ({ children }) => {
   const [onboardingStatus, setOnboardingStatus] = useState(initialStatus);
   const [currentStep, setCurrentStep] = useState(1); // Manual step navigation
+  const didInitStep = useRef(false);
   const [isLoading, setIsLoading] = useState(true); // Loading for onboarding data
   const [error, setError] = useState(null);
-  const { authenticated, isLoading: authIsLoading, token } = useAuth(); // Get auth state
+  const { authenticated, isLoading: authIsLoading, token, user } = useAuth(); // Get auth state
+
+  // Reset didInitStep when user changes (logs in/out)
+  useEffect(() => {
+    didInitStep.current = false;
+  }, [authenticated, user?.id]);
+
+  // On first load (or user change), set currentStep from onboardingStatus
+  useEffect(() => {
+    if (
+      !didInitStep.current &&
+      onboardingStatus &&
+      onboardingStatus.userId // Only run when real data is present
+    ) {
+      const step = getStepFromStatus(onboardingStatus);
+      setCurrentStep(step);
+      didInitStep.current = true;
+    }
+  }, [onboardingStatus]);
 
   const fetchOnboardingStatus = useCallback(async () => {
     if (!authenticated || !token) { // Ensure authenticated and token is present
@@ -143,10 +171,21 @@ setOnboardingStatus(prevStatus => {
     return isStepComplete(stepId - 1);
   }, [isStepComplete]);
 
+  // canGoNext: only true if current step is complete
   const canGoNext = useCallback(() => {
-    // Can go next if current step is complete and there's a next step
-    return currentStep < 5 && isStepComplete(currentStep);
-  }, [currentStep, isStepComplete]);
+    switch (currentStep) {
+      case 1:
+        return onboardingStatus.hasConfiguredBolApi;
+      case 2:
+        return onboardingStatus.hasCompletedShopSync;
+      case 3:
+        return onboardingStatus.hasCompletedVatSetup;
+      case 4:
+        return onboardingStatus.hasCompletedInvoiceSetup;
+      default:
+        return false;
+    }
+  }, [currentStep, onboardingStatus]);
 
   const canGoPrevious = useCallback(() => {
     // Can always go previous if not on first step

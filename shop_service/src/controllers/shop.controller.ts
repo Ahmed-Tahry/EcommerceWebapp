@@ -20,6 +20,11 @@ export const getShopInfo = async (req: Request, res: Response, next: NextFunctio
 
 export const getAllProductsHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ message: 'User ID not provided in X-User-ID header.' });
+      return;
+    }
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 10;
 
@@ -32,7 +37,7 @@ export const getAllProductsHandler = async (req: Request, res: Response, next: N
       return;
     }
 
-    const result = await ShopService.getAllProducts(page, limit);
+    const result = await ShopService.getAllProducts(userId, page, limit);
     res.status(200).json(result);
   } catch (error) {
     console.error('getAllProductsHandler: Error fetching products:', error);

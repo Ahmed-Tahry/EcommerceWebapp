@@ -30,7 +30,9 @@ const fetchProducts = useCallback(async (page = 1) => {
   try {
     const response = await callApi(
       `/shop/api/shop/products?page=${page}&limit=${itemsPerPage}`,
-      'GET'
+      'GET',
+      null,
+      onboardingStatus && onboardingStatus.userId ? { 'X-User-ID': onboardingStatus.userId } : {}
     );
     console.log(response);
 
@@ -53,7 +55,7 @@ const fetchProducts = useCallback(async (page = 1) => {
   } finally {
     setComponentLoading(false);
   }
-}, [itemsPerPage]);
+}, [itemsPerPage, onboardingStatus]);
 
   useEffect(() => {
     if (!(onboardingStatus && onboardingStatus.hasCompletedVatSetup)) {
