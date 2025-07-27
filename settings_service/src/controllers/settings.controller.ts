@@ -173,11 +173,13 @@ export const saveInvoiceSettingsHandler = async (req: Request, res: Response, ne
       return res.status(400).json({ message: 'User ID is required' });
     }
 
-    const { companyName, companyAddress, vatNumber, defaultInvoiceNotes, invoicePrefix, nextInvoiceNumber } = req.body;
+    const { companyName, companyAddress, companyPhone, companyEmail, vatNumber, defaultInvoiceNotes, invoicePrefix, nextInvoiceNumber, bankAccount, startNumber, fileNameBase } = req.body;
     const settingsToSave: Partial<Omit<IInvoiceSettings, 'userId' | 'createdAt' | 'updatedAt'>> = {};
 
     if(companyName !== undefined) settingsToSave.companyName = companyName; // Allow null/empty string to clear
     if(companyAddress !== undefined) settingsToSave.companyAddress = companyAddress;
+    if(companyPhone !== undefined) settingsToSave.companyPhone = companyPhone;
+    if(companyEmail !== undefined) settingsToSave.companyEmail = companyEmail;
     if(vatNumber !== undefined) settingsToSave.vatNumber = vatNumber;
     if(defaultInvoiceNotes !== undefined) settingsToSave.defaultInvoiceNotes = defaultInvoiceNotes;
     if(invoicePrefix !== undefined) settingsToSave.invoicePrefix = invoicePrefix;
@@ -186,6 +188,9 @@ export const saveInvoiceSettingsHandler = async (req: Request, res: Response, ne
         if (isNaN(num) || num < 0) return res.status(400).json({message: "nextInvoiceNumber must be a non-negative number."});
         settingsToSave.nextInvoiceNumber = num;
     }
+    if(bankAccount !== undefined) settingsToSave.bankAccount = bankAccount;
+    if(startNumber !== undefined) settingsToSave.startNumber = startNumber;
+    if(fileNameBase !== undefined) settingsToSave.fileNameBase = fileNameBase;
 
     if (Object.keys(settingsToSave).length === 0 && Object.keys(req.body).length > 0) {
          // Request body had keys, but none matched updatable fields after validation

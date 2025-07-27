@@ -27,7 +27,8 @@ import {
     getBolProcessStatusHandler,
     // syncProductsNewHandler, // Commented out as it's now triggered by exportOffersHandler
     updateProductVatHandler, // Import the VAT update handler
-    getAllProductsHandler // Import the new handler for GET /products
+    getAllProductsHandler, // Import the new handler for GET /products
+    getProductVatRatesHandler, setProductVatRateHandler, deleteProductVatRateHandler
 } from '../controllers/shop.controller';
 
 const router = Router();
@@ -76,8 +77,10 @@ router.get('/bol/process-status/:processId', getBolProcessStatusHandler); // Gen
 // Route for the new product sync logic
 // router.post('/products/sync-new', syncProductsNewHandler); // Commented out as it's now triggered by exportOffersHandler
 
-// Route for manually updating VAT for a product
-router.put('/products/:ean/vat', updateProductVatHandler);
+// Per-country VAT endpoints
+router.get('/products/:ean/vat', getProductVatRatesHandler);
+router.put('/products/:ean/vat', setProductVatRateHandler);
+router.delete('/products/:ean/vat', deleteProductVatRateHandler);
 
 // Route to get all products (for VAT management UI)
 router.get('/products', getAllProductsHandler);

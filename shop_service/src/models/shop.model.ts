@@ -60,3 +60,9 @@ export interface IProduct {
   country?: string | null; // Country for VAT rate application
   userId?: string; // ID of the user/shop that owns this product
 }
+
+export interface IProductVatRate {
+  ean: string;
+  country: string;
+  vatRate: number;
+}

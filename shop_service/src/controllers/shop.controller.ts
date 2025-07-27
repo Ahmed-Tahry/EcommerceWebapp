@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { getDBPool } from '../utils/db'; // Ensure this path is correct
 import * as ShopService from '../services/shop.service'; // Import all service functions
 import { IOffer, IProduct } from '../models/shop.model'; // Import IOffer and IProduct for type checking
+import { getVatRatesForProduct, setVatRateForProduct, deleteVatRateForProduct } from '../services/shop.service';
 
 export const getShopInfo = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -690,6 +691,49 @@ export const deleteOfferHandler = async (req: Request, res: Response, next: Next
     } else {
       res.status(404).json({ message: `Offer with ID ${offerId} not found or could not be deleted` });
     }
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get all VAT rates for a product
+export const getProductVatRatesHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { ean } = req.params;
+    const vatRates = await getVatRatesForProduct(ean);
+    res.status(200).json(vatRates);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Set or update VAT rate for a product and country
+export const setProductVatRateHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { ean } = req.params;
+    const { country, vatRate } = req.body;
+    if (!country || typeof vatRate !== 'number') {
+      res.status(400).json({ message: 'country and vatRate are required.' });
+      return;
+    }
+    const result = await setVatRateForProduct(ean, country, vatRate);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Delete VAT rate for a product and country
+export const deleteProductVatRateHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { ean } = req.params;
+    const { country } = req.body;
+    if (!country) {
+      res.status(400).json({ message: 'country is required.' });
+      return;
+    }
+    await deleteVatRateForProduct(ean, country);
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

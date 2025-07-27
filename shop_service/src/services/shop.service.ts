@@ -1,5 +1,6 @@
 import { getDBPool } from '../utils/db';
 import { IOffer, IOrder, IOrderItem } from '../models/shop.model';
+import { IProductVatRate } from '../models/shop.model';
 
 // Placeholder for ShopService (Phase 1)
 export async function getShopDetailsFromSource(shopId: string): Promise<object | null> {
@@ -1197,6 +1198,29 @@ export async function deleteOrderItem(orderItemId: string): Promise<boolean> {
     console.error(`Error deleting order item ID ${orderItemId}:`, error);
     throw error;
   }
+}
+
+// Get all VAT rates for a product (by EAN)
+export async function getVatRatesForProduct(ean: string): Promise<IProductVatRate[]> {
+  const pool = getDBPool();
+  const result = await pool.query('SELECT ean, country, vat_rate AS "vatRate" FROM product_vat_rates WHERE ean = $1', [ean]);
+  return result.rows as IProductVatRate[];
+}
+
+// Set (insert or update) VAT rate for a product and country
+export async function setVatRateForProduct(ean: string, country: string, vatRate: number): Promise<IProductVatRate> {
+  const pool = getDBPool();
+  await pool.query(
+    'INSERT INTO product_vat_rates (ean, country, vat_rate) VALUES ($1, $2, $3) ON CONFLICT (ean, country) DO UPDATE SET vat_rate = $3',
+    [ean, country, vatRate]
+  );
+  return { ean, country, vatRate };
+}
+
+// Delete VAT rate for a product and country
+export async function deleteVatRateForProduct(ean: string, country: string): Promise<void> {
+  const pool = getDBPool();
+  await pool.query('DELETE FROM product_vat_rates WHERE ean = $1 AND country = $2', [ean, country]);
 }
 
 
