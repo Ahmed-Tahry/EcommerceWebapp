@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as SettingsService from '../services/settings.service';
 import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus } from '../models/settings.model';
+import { getGeneralSettings, saveGeneralSettings } from '../services/settings.service';
 
 // --- Account Details Handlers (Per-User) ---
 export const getAccountDetailsHandler = async (req: Request, res: Response, next: NextFunction) => {
@@ -59,65 +60,6 @@ export const saveAccountDetailsHandler = async (req: Request, res: Response, nex
     // const { bolClientSecret: _, ...safeResponse } = savedDetails;
     // res.status(200).json(safeResponse);
     res.status(200).json(savedDetails);
-  } catch (error) {
-    next(error);
-  }
-};
-
-
-// --- User Onboarding Status Handlers ---
-export const getOnboardingStatusHandler = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.headers['x-user-id'] as string;
-    if (!userId) {
-      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
-    }
-    const status = await SettingsService.getOnboardingStatus(userId);
-    // getOnboardingStatus service method now creates a default if not found, so it should always return a status.
-    res.status(200).json(status);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const updateOnboardingStepHandler = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.headers['x-user-id'] as string;
-    if (!userId) {
-      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
-    }
-
-    // Expecting body like { "hasConfiguredBolApi": true, "hasCompletedShopSync": true, etc. }
-    const {
-      hasConfiguredBolApi,
-      hasCompletedShopSync,
-      hasCompletedVatSetup,
-      hasCompletedInvoiceSetup,
-      ...otherSteps // To catch any unexpected properties
-    } = req.body;
-
-    const updates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'createdAt' | 'updatedAt'>> = {};
-
-    if (hasConfiguredBolApi !== undefined && typeof hasConfiguredBolApi === 'boolean') {
-      updates.hasConfiguredBolApi = hasConfiguredBolApi;
-    }
-    if (hasCompletedShopSync !== undefined && typeof hasCompletedShopSync === 'boolean') {
-      updates.hasCompletedShopSync = hasCompletedShopSync;
-    }
-    if (hasCompletedVatSetup !== undefined && typeof hasCompletedVatSetup === 'boolean') {
-      updates.hasCompletedVatSetup = hasCompletedVatSetup;
-    }
-    if (hasCompletedInvoiceSetup !== undefined && typeof hasCompletedInvoiceSetup === 'boolean') {
-      updates.hasCompletedInvoiceSetup = hasCompletedInvoiceSetup;
-    }
-    // Note: No logic for 'otherSteps' currently, they will be ignored.
-
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ message: 'No valid onboarding step data provided in the request body.' });
-    }
-
-    const updatedStatus = await SettingsService.updateOnboardingStatus(userId, updates);
-    res.status(200).json(updatedStatus);
   } catch (error) {
     next(error);
   }
@@ -257,6 +199,114 @@ export const saveInvoiceSettingsHandler = async (req: Request, res: Response, ne
 
     const savedSettings = await SettingsService.saveInvoiceSettings(userId, settingsToSave);
     res.status(200).json(savedSettings);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- General Settings Handlers (Per-User) ---
+export const getGeneralSettingsHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let userId = req.headers['x-user-id'] as string;
+    if (!userId && req.query && req.query.userId) {
+      userId = req.query.userId as string;
+    }
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header or query parameter.' });
+    }
+    const settings = await getGeneralSettings(userId);
+    if (settings) {
+      res.status(200).json(settings);
+    } else {
+      res.status(404).json({ message: 'General settings not found for this user.' });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const saveGeneralSettingsHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let userId = req.headers['x-user-id'] as string;
+    if (!userId && req.query && req.query.userId) {
+      userId = req.query.userId as string;
+    }
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header or query parameter.' });
+    }
+    const updated = await saveGeneralSettings(userId, req.body);
+    res.status(200).json(updated);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- Coupling Bol Handlers (Per-User) ---
+export const getCouplingBolHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let userId = req.headers['x-user-id'] as string;
+    if (!userId && req.query && req.query.userId) {
+      userId = req.query.userId as string;
+    }
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header or query parameter.' });
+    }
+    const details = await SettingsService.getAccountDetailsByUserId(userId);
+    if (details) {
+      res.status(200).json(details);
+    } else {
+      res.status(404).json({ message: 'Coupling Bol details not found for this user.' });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const saveCouplingBolHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let userId = req.headers['x-user-id'] as string;
+    if (!userId && req.query && req.query.userId) {
+      userId = req.query.userId as string;
+    }
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header or query parameter.' });
+    }
+    const updated = await SettingsService.saveAccountDetails(userId, req.body);
+    res.status(200).json(updated);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getOnboardingStatusHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+    }
+    const status = await SettingsService.getOnboardingStatus(userId);
+    res.status(200).json(status);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateOnboardingStepHandler = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not provided in X-User-ID header.' });
+    }
+    const updates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'createdAt' | 'updatedAt'>> = {};
+    const { hasConfiguredBolApi, hasCompletedShopSync, hasCompletedInvoiceSetup } = req.body;
+    if (typeof hasConfiguredBolApi === 'boolean') updates.hasConfiguredBolApi = hasConfiguredBolApi;
+    if (typeof hasCompletedShopSync === 'boolean') updates.hasCompletedShopSync = hasCompletedShopSync;
+    if (typeof hasCompletedInvoiceSetup === 'boolean') updates.hasCompletedInvoiceSetup = hasCompletedInvoiceSetup;
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No valid onboarding step data provided in the request body.' });
+    }
+    const updatedStatus = await SettingsService.updateOnboardingStatus(userId, updates);
+    res.status(200).json(updatedStatus);
   } catch (error) {
     next(error);
   }

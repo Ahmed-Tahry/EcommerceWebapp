@@ -1,495 +1,545 @@
+'use client';
 
-import Layout from "@/components/layout/Layout"
-import Link from "next/link"
-export default function Setting() {
+import React, { useState, useEffect } from 'react';
+import Layout from '@/components/layout/Layout';
+import { callApi } from '@/utils/api';
+import { useAuth } from '@/contexts/AuthContext';
+import Link from 'next/link';
+import { useOnboarding } from '@/contexts/OnboardingContext';
 
+const TABS = [
+  { key: 'general', label: 'General' },
+  { key: 'security', label: 'Security' },
+  { key: 'couplingBol', label: 'Coupling Bol' },
+  { key: 'productsVat', label: 'Products & VAT' },
+  { key: 'invoice', label: 'Invoice Settings' },
+];
+
+function SectionWrapper({ title, children }) {
     return (
-        <>
+    <div className="wg-box mb-8">
+                        <div className="left">
+        <h5 className="mb-4">{title}</h5>
+                        </div>
+      <div className="right flex-grow">{children}</div>
+                            </div>
+  );
+}
 
-            <Layout breadcrumbTitleParent="Page" breadcrumbTitle="Setting">
-                <form className="form-setting form-style-2">
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Recent Order</h5>
-                            <div className="body-text">Setup license code</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <div className="block-warning w-full mb-24">
-                                <i className="icon-alert-octagon" />
-                                <div className="body-title-2">Your license is invalid. Please activate your license!</div>
-                            </div>
-                            <fieldset className="name mb-24">
-                                <div className="body-title mb-10">Your username</div>
-                                <input className="flex-grow" type="text" placeholder="Enter your username" name="name" tabIndex={0} aria-required="true" required />
-                            </fieldset>
-                            <fieldset className="text mb-24">
-                                <div className="flex items-center justify-between gap10 mb-10">
-                                    <div className="body-title">Purchase code</div>
-                                    <Link href="#" className="body-text tf-color">What’s this?</Link>
-                                </div>
-                                <input className="flex-grow" type="text" placeholder="Enter your purchase code" name="text" tabIndex={0} aria-required="true" required />
-                            </fieldset>
-                            <div className="flex gap10 mb-24">
-                                <input className="total-checkbox" type="checkbox" />
-                                <div className="body-text">Confirm that, according to the Envato License Terms, each license entitles one person for a single project. Creating multiple unregistered installations is a copyright violation. <span className="tf-color">More info</span></div>
-                            </div>
-                            <div className="flex flex-wrap gap10 mb-50">
-                                <Link href="#" className="tf-button">Active license</Link>
-                                <Link href="#" className="tf-button style-1">Reset license on this domain</Link>
-                            </div>
-                            <div className="text-tiny tf-color-1 mb-10">Note: Your site IP will be added to blacklist after 5 failed attempts.</div>
-                            <div className="body-text">A purchase code (license) is only valid for One Domain. Are you using this theme on a new domain? Purchase a new license here to get a new purchase code.</div>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">General Information</h5>
-                            <div className="body-text">Setting site information</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className="email mb-10 add-more-right">
-                                <div className="body-title mb-10">Admin email</div>
-                                <input className="flex-grow" type="email" placeholder="Enter your email" name="email" tabIndex={0} aria-required="true" required />
-                                <Link href="#" className="tf-button add-more">Add more <i className="icon-plus" /></Link>
-                            </fieldset>
-                            <div className="block-warning type-main w-full mb-24">
-                                <i className="icon-alert-octagon" />
-                                <div className="body-title-2">You can add up to 4 emails</div>
-                            </div>
-                            <fieldset className="timezone mb-24">
-                                <div className="body-title mb-10">Timezone</div>
-                                <div className="select flex-grow">
-                                    <select className>
-                                        <option>UTC</option>
-                                        <option>UTC +0</option>
-                                        <option>UTC +1</option>
-                                        <option>UTC +2</option>
-                                        <option>UTC +3</option>
-                                        <option>UTC +4</option>
-                                        <option>UTC +5</option>
-                                        <option>UTC +6</option>
-                                        <option>UTC +7</option>
-                                    </select>
-                                </div>
-                            </fieldset>
-                            <fieldset className="language mb-24">
-                                <div className="body-title mb-10">Site language</div>
-                                <div className="select flex-grow">
-                                    <select className>
-                                        <option>English - EN</option>
-                                        <option>France</option>
-                                        <option>Japan</option>
-                                        <option>Viet Nam</option>
-                                    </select>
-                                </div>
-                            </fieldset>
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Front site language direction</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="site-language" id="site-language1" defaultChecked />
-                                        <label htmlFor="site-language1"><span className="body-title-2">Left to Right</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="site-language" id="site-language2" />
-                                        <label htmlFor="site-language2"><span className="body-title-2">Right to Left</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <div className="flex gap10">
-                                <input type="checkbox" />
-                                <div className="body-text">Enable to send error reporting via email?</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Admin appearance</h5>
-                            <div className="body-text">Setting admin appearance such as editor, language...</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <div className="flex gap24 mobile-wrap">
-                                <div className="flex gap24 w-half">
-                                    <fieldset className="title mb-24">
-                                        <div className="body-title mb-10">Avatar</div>
-                                        <div className="upload-image style-2">
-                                            <div className="item up-load">
-                                                <label className="uploadfile" htmlFor="myFile">
-                                                    <span className="icon">
-                                                        <i className="icon-upload-cloud" />
-                                                    </span>
-                                                    <span className="text-tiny">Drop your images here or select <span className="tf-color">click to browse</span></span>
-                                                    <input type="file" id="myFile" name="filename" />
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </fieldset>
-                                    <fieldset className="title mb-24">
-                                        <div className="body-title mb-10">Favicon</div>
-                                        <div className="upload-image style-2">
-                                            <div className="item up-load">
-                                                <label className="uploadfile" htmlFor="myFile1">
-                                                    <span className="icon">
-                                                        <i className="icon-upload-cloud" />
-                                                    </span>
-                                                    <span className="text-tiny">Drop your images here or select <span className="tf-color">click to browse</span></span>
-                                                    <input type="file" id="myFile1" name="filename" />
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </fieldset>
-                                </div>
-                                <fieldset className="title mb-24 w-half">
-                                    <div className="body-title mb-10">Cover (1920x1080)</div>
-                                    <div className="upload-image style-2">
-                                        <div className="item up-load">
-                                            <label className="uploadfile" htmlFor="myFile2">
-                                                <span className="icon">
-                                                    <i className="icon-upload-cloud" />
-                                                </span>
-                                                <span className="text-tiny">Drop your images here or select <span className="tf-color">click to browse</span></span>
-                                                <input type="file" id="myFile2" name="filename" />
-                                            </label>
-                                        </div>
-                                    </div>
-                                </fieldset>
-                            </div>
-                            <fieldset className="title mb-24">
-                                <div className="body-title mb-10">Admin title</div>
-                                <input className="flex-grow" type="text" placeholder="Enter title" name="title" tabIndex={0} aria-required="true" required />
-                            </fieldset>
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Admin language direction</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="admin-language" id="admin-language1" defaultChecked />
-                                        <label htmlFor="admin-language1"><span className="body-title-2">Left to Right</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="admin-language" id="admin-language2" />
-                                        <label htmlFor="admin-language2"><span className="body-title-2">Right to Left</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Rich Editor</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="rich-editor" id="rich-editor1" defaultChecked />
-                                        <label htmlFor="rich-editor1"><span className="body-title-2">CKEditor</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="rich-editor" id="rich-editor2" />
-                                        <label htmlFor="rich-editor2"><span className="body-title-2">TinyMCE</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <div className="flex gap10">
-                                <input type="checkbox" />
-                                <div className="body-text">Enable change admin theme?</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Cache</h5>
-                            <div className="body-text">Config cache for system for optimize speed</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Enable cache?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="enable-cache" id="enable-cache1" />
-                                        <label htmlFor="enable-cache1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="enable-cache" id="enable-cache2" defaultChecked />
-                                        <label htmlFor="enable-cache2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <fieldset className>
-                                <div className="body-title mb-10">Cache admin menu?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="cache-admin" id="cache-admin1" />
-                                        <label htmlFor="cache-admin1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="cache-admin" id="cache-admin2" defaultChecked />
-                                        <label htmlFor="cache-admin2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Datatables</h5>
-                            <div className="body-text">Settings for datatables</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Default show column visibility?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="show-column" id="show-column1" />
-                                        <label htmlFor="show-column1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="show-column" id="show-column2" defaultChecked />
-                                        <label htmlFor="show-column2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <fieldset className>
-                                <div className="body-title mb-10">Default show export button?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="show-export" id="show-export1" />
-                                        <label htmlFor="show-export1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="show-export" id="show-export2" defaultChecked />
-                                        <label htmlFor="show-export2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Optimize page speed</h5>
-                            <div className="body-text">Minify HTML output, inline CSS, remove comments...</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className>
-                                <div className="body-title mb-10">Enable optimize page speed?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="optimize" id="optimize1" />
-                                        <label htmlFor="optimize1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="optimize" id="optimize2" defaultChecked />
-                                        <label htmlFor="optimize2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Theme</h5>
-                            <div className="body-text">Setting for theme</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Enable cache site map?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="cache-site" id="cache-site1" defaultChecked />
-                                        <label htmlFor="cache-site1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="cache-site" id="cache-site2" />
-                                        <label htmlFor="cache-site2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Cache Time Site map (minutes)</div>
-                                <input className="flex-grow" type="text" placeholder="Enter title" name="title" tabIndex={0} aria-required="true" required />
-                            </fieldset>
-                            <div className="flex gap10 mb-24">
-                                <input type="checkbox" />
-                                <div className="body-text">Show admin bar (When admin logged in, still show admin bar in website)?</div>
-                            </div>
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Redirect all not found requests to homepage?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="redirect" id="redirect1" />
-                                        <label htmlFor="redirect1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="redirect" id="redirect2" defaultChecked />
-                                        <label htmlFor="redirect2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <fieldset className>
-                                <div className="body-title mb-10">Show guidelines?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="guidelines" id="guidelines1" />
-                                        <label htmlFor="guidelines1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="guidelines" id="guidelines2" defaultChecked />
-                                        <label htmlFor="guidelines2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Contact</h5>
-                            <div className="body-text">Settings for contact plugin</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className="text mb-10 add-more-right">
-                                <div className="body-title mb-10">Blacklist keywords</div>
-                                <input className="flex-grow" type="text" placeholder="keywords" name="text" tabIndex={0} aria-required="true" required />
-                                <Link href="#" className="tf-button add-more">Add more <i className="icon-plus" /></Link>
-                            </fieldset>
-                            <div className="block-warning type-main w-full mb-24">
-                                <i className="icon-alert-octagon" />
-                                <div className="body-title-2">Blacklist contact requests if it includes those keywords in the content field (separate by comma).</div>
-                            </div>
-                            <fieldset className="text mb-10 add-more-right">
-                                <div className="body-title mb-10">Blacklist email domains</div>
-                                <input className="flex-grow" type="text" placeholder="Domains" name="text" tabIndex={0} aria-required="true" required />
-                                <Link href="#" className="tf-button add-more">Add more <i className="icon-plus" /></Link>
-                            </fieldset>
-                            <div className="block-warning type-main w-full mb-24">
-                                <i className="icon-alert-octagon" />
-                                <div className="body-title-2">Blacklist contact requests if the email domain is in blacklist domains (separate by comma).</div>
-                            </div>
-                            <div className="flex gap10">
-                                <input type="checkbox" />
-                                <div className="body-text">Enable math captcha?</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Google Analytics</h5>
-                            <div className="body-text">Config Credentials for Google Analytics</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className="text mb-10 add-more-right">
-                                <div className="body-title mb-10">Google tag ID</div>
-                                <input className="flex-grow" type="text" placeholder="Enter your Google tag ID" name="text" tabIndex={0} aria-required="true" required />
-                                <Link href="#" className="tf-button add-more">Add more <i className="icon-plus" /></Link>
-                            </fieldset>
-                            <div className="block-warning type-main w-full mb-24">
-                                <i className="icon-alert-octagon" />
-                                <div className="body-title-2">https://support.google.com/analytics/answer/9539598#find-G-ID</div>
-                            </div>
-                            <fieldset className="text mb-10 add-more-right">
-                                <div className="body-title mb-10">Property ID for GA4</div>
-                                <input className="flex-grow" type="text" placeholder="Google analytics property ID (GA4)" name="text" tabIndex={0} aria-required="true" required />
-                                <Link href="#" className="tf-button add-more">Add more <i className="icon-plus" /></Link>
-                            </fieldset>
-                            <div className="block-warning type-main w-full">
-                                <i className="icon-alert-octagon" />
-                                <div className="body-title-2">https://developers.google.com/analytics/devguides/reporting/data/v1/property-id</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Blog</h5>
-                            <div className="body-text">Settings for Blog</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <div className="flex gap10 mb-10">
-                                <input type="checkbox" />
-                                <div className="body-text">Enable Blog Post Schema?</div>
-                            </div>
-                            <div className="block-warning type-main w-full mb-24">
-                                <i className="icon-alert-octagon" />
-                                <div className="body-title-2">Blacklist contact requests if it includes those keywords in the content field (separate by comma).</div>
-                            </div>
-                            <fieldset className>
-                                <div className="body-title mb-10">Schema type</div>
-                                <div className="select flex-grow">
-                                    <select className>
-                                        <option>News Article</option>
-                                        <option>Line Chart</option>
-                                        <option>Column Chart</option>
-                                    </select>
-                                </div>
-                            </fieldset>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Newsletter</h5>
-                            <div className="body-text">Settings for newsletter (auto send newsletter email to SendGrid, Mailchimp... when someone register newsletter on website).</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className>
-                                <div className="body-title mb-10">Enable newsletter contacts list API?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="newsletter" id="newsletter1" />
-                                        <label htmlFor="newsletter1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="newsletter" id="newsletter2" defaultChecked />
-                                        <label htmlFor="newsletter2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Captcha</h5>
-                            <div className="body-text">Settings for Google Captcha</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className>
-                                <div className="body-title mb-10">Enable Captcha?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="captcha" id="captcha1" />
-                                        <label htmlFor="captcha1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="captcha" id="captcha2" defaultChecked />
-                                        <label htmlFor="captcha2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                        </div>
-                    </div>
-                    <div className="wg-box">
-                        <div className="left">
-                            <h5 className="mb-4">Simple sliders</h5>
-                            <div className="body-text">Settings for Simple sliders</div>
-                        </div>
-                        <div className="right flex-grow">
-                            <fieldset className="mb-24">
-                                <div className="body-title mb-10">Using default assets?</div>
-                                <div className="radio-buttons">
-                                    <div className="item">
-                                        <input type="radio" name="assets" id="assets1" defaultChecked />
-                                        <label htmlFor="assets1"><span className="body-title-2">Yes</span></label>
-                                    </div>
-                                    <div className="item">
-                                        <input type="radio" name="assets" id="assets2" />
-                                        <label htmlFor="assets2"><span className="body-title-2">No</span></label>
-                                    </div>
-                                </div>
-                            </fieldset>
-                            <div className="body-text mb-24">If using assets option is enabled then below scripts will be auto added to front site.</div>
-                            <div className="body-text tf-color-3">
-                                /vendor/core/plugins/simple-slider/libraries/owl-carousel/owl.carousel.css <br />
-                                /vendor/core/plugins/simple-slider/css/simple-slider.css <br />
-                                /vendor/core/plugins/simple-slider/libraries/owl-carousel/owl.carousel.js <br />
-                                /vendor/core/plugins/simple-slider/js/simple-slider.js
-                            </div>
-                        </div>
-                    </div>
-                    <button type="submit" className="tf-button w180 m-auto">Save setting</button>
-                </form>
+function GeneralSection() {
+  const [form, setForm] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm(f => ({ ...f, [name]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setSuccess(''); 
+    setError('');
+    try {
+      await callApi('/settings/settings/general', 'POST', form);
+      setSuccess('General settings saved!');
+    } catch (err) {
+      setError('Failed to save general settings.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div>Loading...</div>;
+  return (
+    <form onSubmit={handleSubmit} className="form-setting form-style-2">
+      <h6 className="mb-2">Personal Information</h6>
+      <div className="flex gap-4 mb-4">
+        <input name="firstname" value={form?.firstname || ''} onChange={handleChange} placeholder="First Name" required className="flex-grow" />
+        <input name="surname" value={form?.surname || ''} onChange={handleChange} placeholder="Surname" required className="flex-grow" />
+                                </div>
+      <div className="flex gap-4 mb-4">
+        <input name="address" value={form?.address || ''} onChange={handleChange} placeholder="Address" required className="flex-grow" />
+        <input name="postcode" value={form?.postcode || ''} onChange={handleChange} placeholder="Postcode" required className="flex-grow" />
+        <input name="city" value={form?.city || ''} onChange={handleChange} placeholder="City" required className="flex-grow" />
+                            </div>
+      <div className="flex gap-4 mb-4">
+        <input name="accountEmail" value={form?.accountEmail || ''} onChange={handleChange} placeholder="Account Email" required className="flex-grow" />
+        <input name="phoneNumber" value={form?.phoneNumber || ''} onChange={handleChange} placeholder="Phone Number" className="flex-grow" />
+                            </div>
+      <h6 className="mb-2 mt-6">Company Details</h6>
+      <div className="flex gap-4 mb-4">
+        <input name="companyName" value={form?.companyName || ''} onChange={handleChange} placeholder="Company Name" required className="flex-grow" />
+        <input name="companyAddress" value={form?.companyAddress || ''} onChange={handleChange} placeholder="Company Address" required className="flex-grow" />
+                        </div>
+      <div className="flex gap-4 mb-4">
+        <input name="companyPostcode" value={form?.companyPostcode || ''} onChange={handleChange} placeholder="Company Postcode" required className="flex-grow" />
+        <input name="companyCity" value={form?.companyCity || ''} onChange={handleChange} placeholder="Company City" required className="flex-grow" />
+                    </div>
+      <div className="flex gap-4 mb-4">
+        <input name="customerEmail" value={form?.customerEmail || ''} onChange={handleChange} placeholder="Customer Email" required className="flex-grow" />
+        <input name="companyPhoneNumber" value={form?.companyPhoneNumber || ''} onChange={handleChange} placeholder="Company Phone Number" className="flex-grow" />
+                        </div>
+      <h6 className="mb-2 mt-6">Additional Company Details</h6>
+      <div className="flex gap-4 mb-4">
+        <input name="chamberOfCommerce" value={form?.chamberOfCommerce || ''} onChange={handleChange} placeholder="Chamber of Commerce" required className="flex-grow" />
+        <input name="vatNumber" value={form?.vatNumber || ''} onChange={handleChange} placeholder="VAT Number" required className="flex-grow" />
+        <input name="iban" value={form?.iban || ''} onChange={handleChange} placeholder="IBAN" className="flex-grow" />
+        <input name="optionalVatNumber" value={form?.optionalVatNumber || ''} onChange={handleChange} placeholder="Optional VAT Number" className="flex-grow" />
+                            </div>
+      <button type="submit" className="tf-button w180 m-auto">Save General</button>
+      {success && <div className="text-green-600 mt-2">{success}</div>}
+      {error && <div className="text-red-600 mt-2">{error}</div>}
+    </form>
+  );
+}
+
+function SecuritySection() {
+  // Password change is handled by Keycloak. Provide a button to redirect to Keycloak account page.
+  const { keycloak } = useAuth();
+  return (
+    <div>
+      <p className="mb-4">Password changes are managed securely via our authentication provider.</p>
+      <button
+        className="tf-button"
+        onClick={() => keycloak && keycloak.accountManagement()}
+      >
+        Change Password
+      </button>
+                                </div>
+  );
+}
+
+function CouplingBolSection() {
+  const [form, setForm] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm(f => ({ ...f, [name]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setSuccess(''); 
+    setError('');
+    try {
+      await callApi('/settings/settings/coupling-bol', 'POST', form);
+      setSuccess('Coupling Bol settings saved!');
+    } catch (err) {
+      setError('Failed to save Coupling Bol settings.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div>Loading...</div>;
+  return (
+    <form onSubmit={handleSubmit} className="form-setting form-style-2">
+      <div className="flex gap-4 mb-4">
+        <input name="salesNumber" value={form?.salesNumber || ''} onChange={handleChange} placeholder="Sales Number" required className="flex-grow" />
+        <input name="status" value={form?.status || ''} onChange={handleChange} placeholder="Status" required className="flex-grow" />
+                                </div>
+      <div className="flex gap-4 mb-4">
+        <input name="bolClientId" value={form?.bolClientId || ''} onChange={handleChange} placeholder="Bol.com Client ID" className="flex-grow" />
+        <input name="bolClientSecret" value={form?.bolClientSecret || ''} onChange={handleChange} placeholder="Bol.com Client Secret" className="flex-grow" />
+                                    </div>
+      <div className="flex gap-4 mb-4">
+        <textarea name="apiCredentials" value={form?.apiCredentials ? JSON.stringify(form.apiCredentials) : ''} onChange={e => setForm(f => ({ ...f, apiCredentials: e.target.value }))} placeholder="API Credentials (JSON)" className="flex-grow" />
+                                    </div>
+      <button type="submit" className="tf-button w180 m-auto">Save Coupling Bol</button>
+      {success && <div className="text-green-600 mt-2">{success}</div>}
+      {error && <div className="text-red-600 mt-2">{error}</div>}
+    </form>
+  );
+}
+
+function ProductsVatSection() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [limit] = useState(10);
+  const [showVatPopup, setShowVatPopup] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedCountry, setSelectedCountry] = useState('');
+  const [selectedVatRate, setSelectedVatRate] = useState('');
+
+  // VAT rates by country (EU countries)
+  const vatRates = {
+    'Netherlands': [21, 9, 0],
+    'Belgium': [21, 12, 6, 0],
+    'Germany': [19, 7, 0],
+    'France': [20, 10, 5.5, 2.1, 0],
+    'Italy': [22, 10, 5, 0],
+    'Spain': [21, 10, 4, 0],
+    'Poland': [23, 8, 5, 0],
+    'Romania': [19, 9, 5, 0],
+    'Czech Republic': [21, 15, 10, 0],
+    'Greece': [24, 13, 6, 0],
+    'Hungary': [27, 18, 5, 0],
+    'Portugal': [23, 13, 6, 0],
+    'Sweden': [25, 12, 6, 0],
+    'Austria': [20, 13, 10, 0],
+    'Bulgaria': [20, 9, 0],
+    'Croatia': [25, 13, 5, 0],
+    'Denmark': [25, 0],
+    'Estonia': [20, 9, 0],
+    'Finland': [24, 14, 10, 0],
+    'Ireland': [23, 13.5, 9, 4.8, 0],
+    'Latvia': [21, 12, 5, 0],
+    'Lithuania': [21, 9, 5, 0],
+    'Luxembourg': [17, 14, 8, 3, 0],
+    'Malta': [18, 7, 5, 0],
+    'Slovakia': [20, 10, 0],
+    'Slovenia': [22, 9.5, 0],
+    'Cyprus': [19, 9, 5, 0]
+  };
+
+  const countries = Object.keys(vatRates);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [currentPage]);
+
+  async function fetchProducts() {
+    setLoading(true);
+    try {
+      const response = await callApi(`/shop/api/shop/products?page=${currentPage}&limit=${limit}`, 'GET');
+      setProducts(response.products || []);
+      setTotalPages(Math.ceil(response.total / limit));
+      setTotalProducts(response.total);
+    } catch (err) {
+      setProducts([]);
+      setError('Failed to load products.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openVatPopup(product) {
+    console.log('Opening VAT popup for product:', product);
+    setSelectedProduct(product);
+    setSelectedCountry('');
+    setSelectedVatRate('');
+    setShowVatPopup(true);
+    console.log('showVatPopup set to true');
+  }
+
+  function closeVatPopup() {
+    setShowVatPopup(false);
+    setSelectedProduct(null);
+    setSelectedCountry('');
+    setSelectedVatRate('');
+  }
+
+  async function handleVatUpdate() {
+    if (!selectedCountry || !selectedVatRate) {
+      setError('Please select both country and VAT rate.');
+      return;
+    }
+
+    setSuccess(''); 
+    setError('');
+    try {
+      await callApi(`/shop/api/shop/products/${selectedProduct.ean}/vat`, 'PUT', { 
+        vatRate: Number(selectedVatRate),
+        country: selectedCountry 
+      });
+      setProducts(ps => ps.map(p => 
+        p.ean === selectedProduct.ean 
+          ? { ...p, vatRate: Number(selectedVatRate), country: selectedCountry } 
+          : p
+      ));
+      setSuccess('VAT rate updated!');
+      closeVatPopup();
+    } catch (err) {
+      setError('Failed to update VAT rate.');
+    }
+  }
+
+  function handleCountryChange(country) {
+    setSelectedCountry(country);
+    setSelectedVatRate(''); // Reset VAT rate when country changes
+  }
+
+  if (loading) return <div>Loading...</div>;
+
+  console.log('ProductsVatSection render - showVatPopup:', showVatPopup, 'selectedProduct:', selectedProduct);
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h6 className="mb-2">Product VAT Settings</h6>
+        <p className="text-sm text-gray-600 mb-4">
+          Total Products: {totalProducts} | Page {currentPage} of {totalPages}
+        </p>
+                                </div>
+
+      <table className="table-auto w-full mb-4">
+        <thead>
+          <tr className="bg-gray-50">
+            <th className="px-4 py-2 text-left">EAN</th>
+            <th className="px-4 py-2 text-left">Name</th>
+            <th className="px-4 py-2 text-left">Current VAT Rate (%)</th>
+            <th className="px-4 py-2 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map(product => (
+            <tr key={product.ean} className="border-b">
+              <td className="px-4 py-2">{product.ean}</td>
+              <td className="px-4 py-2">{product.title}</td>
+              <td className="px-4 py-2">
+                {product.vatRate ? `${product.vatRate}%` : 'Not set'}
+              </td>
+              <td className="px-4 py-2">
+                <button
+                  onClick={() => openVatPopup(product)}
+                  className="tf-button tf-button-sm"
+                >
+                  Edit VAT
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex justify-center items-center gap-2 mb-4">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="tf-button tf-button-sm"
+          >
+            Previous
+          </button>
+          
+          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+            const pageNum = i + 1;
+            return (
+              <button
+                key={pageNum}
+                onClick={() => setCurrentPage(pageNum)}
+                className={`tf-button tf-button-sm ${currentPage === pageNum ? 'active' : ''}`}
+              >
+                {pageNum}
+              </button>
+            );
+          })}
+          
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="tf-button tf-button-sm"
+          >
+            Next
+          </button>
+                            </div>
+      )}
+
+      {/* VAT Popup */}
+      {showVatPopup && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
+        >
+          <div 
+            className="bg-white p-6 rounded-lg max-w-md w-full mx-4 shadow-xl"
+            style={{ maxWidth: '500px', zIndex: 1000 }}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">
+                Set VAT Rate for {selectedProduct?.title}
+              </h3>
+              <button 
+                onClick={closeVatPopup}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+                        </div>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Country:</label>
+              <select
+                value={selectedCountry}
+                onChange={(e) => handleCountryChange(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select Country</option>
+                {countries.map(country => (
+                  <option key={country} value={country}>{country}</option>
+                ))}
+              </select>
+                    </div>
+
+            {selectedCountry && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-2">VAT Rate (%):</label>
+                <select
+                  value={selectedVatRate}
+                  onChange={(e) => setSelectedVatRate(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select VAT Rate</option>
+                  {vatRates[selectedCountry].map(rate => (
+                    <option key={rate} value={rate}>
+                      {rate}% {rate === 0 ? '(Zero-rated)' : ''}
+                    </option>
+                  ))}
+                </select>
+                        </div>
+            )}
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={closeVatPopup}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleVatUpdate}
+                disabled={!selectedCountry || !selectedVatRate}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Update VAT
+              </button>
+                            </div>
+                        </div>
+                    </div>
+      )}
+
+      {success && <div className="text-green-600 mt-2">{success}</div>}
+      {error && <div className="text-red-600 mt-2">{error}</div>}
+                        </div>
+  );
+}
+
+function InvoiceSettingsSection() {
+  const [form, setForm] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm(f => ({ ...f, [name]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setSuccess(''); 
+    setError('');
+    try {
+      await callApi('/settings/settings/invoice', 'POST', form);
+      setSuccess('Invoice settings saved!');
+    } catch (err) {
+      setError('Failed to save invoice settings.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div>Loading...</div>;
+  return (
+    <form onSubmit={handleSubmit} className="form-setting form-style-2">
+      <div className="flex gap-4 mb-4">
+        <input name="invoicePrefix" value={form?.invoicePrefix || ''} onChange={handleChange} placeholder="Prefix (e.g., BOL-{year}-)" required className="flex-grow" />
+        <input name="startNumber" value={form?.startNumber || ''} onChange={handleChange} placeholder="Start Number (e.g., 0001)" required className="flex-grow" />
+        <select name="fileNameBase" value={form?.fileNameBase || ''} onChange={handleChange} required className="flex-grow">
+          <option value="">Select File Name Base</option>
+          <option value="invoice_number">Invoice Number</option>
+          <option value="order_number">Order Number</option>
+                                    </select>
+                                </div>
+      <button type="submit" className="tf-button w180 m-auto">Save Invoice Settings</button>
+      {success && <div className="text-green-600 mt-2">{success}</div>}
+      {error && <div className="text-red-600 mt-2">{error}</div>}
+    </form>
+  );
+}
+
+export default function Setting() {
+  const { authenticated, isLoading: authIsLoading, login } = useAuth();
+  const { onboardingStatus, isLoading: onboardingIsLoading } = useOnboarding();
+  const [tab, setTab] = useState('general');
+
+  if (authIsLoading || onboardingIsLoading) {
+    return (
+      <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Settings">
+        <div className="max-w-4xl mx-auto px-4 py-10 text-center">
+          <div className="text-lg">Checking authentication status...</div>
+                        </div>
+      </Layout>
+    );
+  }
+
+  if (!authenticated) {
+    return (
+      <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Settings">
+        <div className="max-w-4xl mx-auto px-4 py-10 text-center wg-box">
+          <h2 className="text-2xl font-semibold mb-4">Authentication Required</h2>
+          <p className="text-gray-600 mb-6">Please log in to access the settings page.</p>
+          <button onClick={() => login()} className="tf-button">
+            Login
+          </button>
+                    </div>
+      </Layout>
+    );
+  }
+
+  // Check if onboarding is complete (VAT is optional, so exclude it from the check)
+  const isOnboardingComplete = onboardingStatus && 
+    onboardingStatus.hasConfiguredBolApi === true && 
+    onboardingStatus.hasCompletedShopSync === true && 
+    onboardingStatus.hasCompletedInvoiceSetup === true;
+
+  if (!isOnboardingComplete) {
+    return (
+      <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Settings">
+        <div className="max-w-4xl mx-auto px-4 py-10 text-center wg-box">
+          <h2 className="text-2xl font-semibold mb-4">Complete Onboarding First</h2>
+          <p className="text-gray-600 mb-6">You must finish onboarding before accessing settings.</p>
+          <a href="/onboarding" className="tf-button">Go to Onboarding</a>
+                        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Settings">
+      <div className="max-w-4xl mx-auto px-4 py-10">
+        <div className="flex gap-4 mb-8 border-b pb-2">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              className={`tf-button ${tab === t.key ? 'style-1' : ''}`}
+              onClick={() => setTab(t.key)}
+              type="button"
+            >
+              {t.label}
+            </button>
+          ))}
+                                    </div>
+        {tab === 'general' && <SectionWrapper title="General"><GeneralSection /></SectionWrapper>}
+        {tab === 'security' && <SectionWrapper title="Security"><SecuritySection /></SectionWrapper>}
+        {tab === 'couplingBol' && <SectionWrapper title="Coupling Bol"><CouplingBolSection /></SectionWrapper>}
+        {tab === 'productsVat' && <SectionWrapper title="Products & VAT"><ProductsVatSection /></SectionWrapper>}
+        {tab === 'invoice' && <SectionWrapper title="Invoice Settings"><InvoiceSettingsSection /></SectionWrapper>}
+                    </div>
             </Layout>
-        </>
-    )
+  );
 }

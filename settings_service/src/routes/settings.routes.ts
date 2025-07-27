@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import * as SettingsController from '../controllers/settings.controller';
+import { getGeneralSettingsHandler, saveGeneralSettingsHandler } from '../controllers/settings.controller';
+import { getCouplingBolHandler, saveCouplingBolHandler } from '../controllers/settings.controller';
 
 const router = Router();
 
@@ -21,5 +23,11 @@ router.delete('/vat/:id', SettingsController.deleteVatSettingHandler);
 // Invoice Settings routes
 router.get('/invoice', SettingsController.getInvoiceSettingsHandler);
 router.post('/invoice', SettingsController.saveInvoiceSettingsHandler); // Using POST for save/update of single resource
+
+router.get('/general', getGeneralSettingsHandler);
+router.post('/general', saveGeneralSettingsHandler);
+
+router.get('/coupling-bol', getCouplingBolHandler);
+router.post('/coupling-bol', saveCouplingBolHandler);
 
 export default router;

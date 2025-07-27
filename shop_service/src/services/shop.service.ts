@@ -410,7 +410,7 @@ export async function getAllProducts(userId: string, page: number = 1, limit: nu
 
     // Query for the paginated products for this user
     const productsQuery = `
-      SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", "userId"
+      SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", country, "userId"
       FROM products
       WHERE "userId" = $1
       ORDER BY title ASC NULLS LAST, ean ASC

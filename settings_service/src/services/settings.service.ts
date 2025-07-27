@@ -1,5 +1,5 @@
 import { getDBPool } from '../utils/db';
-import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus } from '../models/settings.model';
+import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus, IGeneralSettings } from '../models/settings.model';
 // Pool type is not directly used, can be removed if not needed elsewhere.
 // import { Pool } from 'pg';
 
@@ -12,12 +12,17 @@ function toSnakeCase(str: string): string {
 
 export async function getAccountDetailsByUserId(userId: string): Promise<IAccountDetails | null> {
   const pool = getDBPool();
+  const query = `
+    SELECT id, user_id AS "userId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
+           sales_number AS "salesNumber", status, api_credentials AS "apiCredentials", created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM account_details WHERE user_id = $1
+  `;
   try {
-    const result = await pool.query(
-      'SELECT id, user_id AS "userId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret", created_at AS "createdAt", updated_at AS "updatedAt" FROM account_details WHERE user_id = $1',
-      [userId]
-    );
-    return result.rows.length > 0 ? result.rows[0] : null;
+    const result = await pool.query(query, [userId]);
+    if (result.rows.length > 0) {
+      return result.rows[0];
+    }
+    return null;
   } catch (error) {
     console.error(`Error fetching account details for user ID ${userId}:`, error);
     throw error;
@@ -29,20 +34,24 @@ export async function saveAccountDetails(
   details: Partial<Omit<IAccountDetails, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>
 ): Promise<IAccountDetails> {
   const pool = getDBPool();
-  const { bolClientId, bolClientSecret } = details;
+  const { bolClientId, bolClientSecret, salesNumber, status, apiCredentials } = details;
 
   // Upsert logic: Insert if not exists, update if exists for the given userId.
   const query = `
-    INSERT INTO account_details (user_id, bol_client_id, bol_client_secret)
-    VALUES ($1, $2, $3)
+    INSERT INTO account_details (user_id, bol_client_id, bol_client_secret, sales_number, status, api_credentials)
+    VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT (user_id) DO UPDATE SET
       bol_client_id = EXCLUDED.bol_client_id,
       bol_client_secret = EXCLUDED.bol_client_secret,
+      sales_number = EXCLUDED.sales_number,
+      status = EXCLUDED.status,
+      api_credentials = EXCLUDED.api_credentials,
       updated_at = NOW()
-    RETURNING id, user_id AS "userId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret", created_at AS "createdAt", updated_at AS "updatedAt";
+    RETURNING id, user_id AS "userId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
+           sales_number AS "salesNumber", status, api_credentials AS "apiCredentials", created_at AS "createdAt", updated_at AS "updatedAt";
   `;
   try {
-    const result = await pool.query(query, [userId, bolClientId, bolClientSecret]);
+    const result = await pool.query(query, [userId, bolClientId, bolClientSecret, salesNumber, status, apiCredentials ? JSON.stringify(apiCredentials) : null]);
     return result.rows[0];
   } catch (error) {
     console.error(`Error saving account details for user ID ${userId}:`, error);
@@ -57,7 +66,7 @@ export async function getOnboardingStatus(userId: string): Promise<IUserOnboardi
   const pool = getDBPool();
   try {
 const result = await pool.query(
-  'SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_vat_setup AS "hasCompletedVatSetup", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt" FROM user_onboarding_status WHERE user_id = $1',
+  'SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt" FROM user_onboarding_status WHERE user_id = $1',
   [userId]
 );
     if (result.rows.length > 0) {
@@ -68,7 +77,6 @@ const result = await pool.query(
       userId,
       hasConfiguredBolApi: false,
       hasCompletedShopSync: false,
-      hasCompletedVatSetup: false,
       hasCompletedInvoiceSetup: false,
     };
     return await createOrUpdateOnboardingStatus(defaultStatus);
@@ -96,7 +104,6 @@ async function createOrUpdateOnboardingStatus(
     userId,
     hasConfiguredBolApi,
     hasCompletedShopSync,
-    hasCompletedVatSetup,
     hasCompletedInvoiceSetup
   } = statusData;
 
@@ -119,7 +126,6 @@ async function createOrUpdateOnboardingStatus(
 
   addField('has_configured_bol_api', hasConfiguredBolApi);
   addField('has_completed_shop_sync', hasCompletedShopSync);
-  addField('has_completed_vat_setup', hasCompletedVatSetup);
   addField('has_completed_invoice_setup', hasCompletedInvoiceSetup);
 
   // If it's a new record and no specific true/false values were passed for some fields,
@@ -140,7 +146,7 @@ async function createOrUpdateOnboardingStatus(
     // 1. An attempt to "touch" the record without changes (return existing or create default if missing).
     // 2. Or, an empty body was sent to the update endpoint.
     const existingStatus = await pool.query(
-      `SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_vat_setup AS "hasCompletedVatSetup", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt"
+      `SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt"
        FROM user_onboarding_status WHERE user_id = $1`,
       [userId]
     );
@@ -158,7 +164,6 @@ async function createOrUpdateOnboardingStatus(
         // This ensures the RETURNING clause gets all fields.
         if (hasConfiguredBolApi === undefined) { addField('has_configured_bol_api', false); }
         if (hasCompletedShopSync === undefined) { addField('has_completed_shop_sync', false); }
-        if (hasCompletedVatSetup === undefined) { addField('has_completed_vat_setup', false); }
         if (hasCompletedInvoiceSetup === undefined) { addField('has_completed_invoice_setup', false); }
     }
   }
@@ -180,7 +185,6 @@ async function createOrUpdateOnboardingStatus(
       user_id AS "userId",
       has_configured_bol_api AS "hasConfiguredBolApi",
       has_completed_shop_sync AS "hasCompletedShopSync",
-      has_completed_vat_setup AS "hasCompletedVatSetup",
       has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
       created_at AS "createdAt",
       updated_at AS "updatedAt";
@@ -295,32 +299,40 @@ export async function deleteVatSetting(id: string): Promise<boolean> {
 
 export async function getInvoiceSettings(userId: string): Promise<IInvoiceSettings | null> {
   const pool = getDBPool();
+  const query = `
+    SELECT user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", company_phone AS "companyPhone",
+           company_email AS "companyEmail", invoice_prefix AS "invoicePrefix", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes",
+           next_invoice_number AS "nextInvoiceNumber", bank_account AS "bankAccount", start_number AS "startNumber", file_name_base AS "fileNameBase",
+           created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM invoice_settings WHERE user_id = $1
+  `;
   try {
-    const result = await pool.query(
-      'SELECT user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes", invoice_prefix AS "invoicePrefix", next_invoice_number AS "nextInvoiceNumber", created_at AS "createdAt", updated_at AS "updatedAt" FROM invoice_settings WHERE user_id = $1', [userId]);
+    const result = await pool.query(query, [userId]);
     if (result.rows.length > 0) {
       return result.rows[0];
     }
-    // If no record exists for this user, return null (let the controller handle creation)
     return null;
-
   } catch (error) {
-    console.error('Error fetching invoice settings:', error);
+    console.error(`Error fetching invoice settings for user ID ${userId}:`, error);
     throw error;
   }
 }
 
 export async function saveInvoiceSettings(userId: string, settings: Partial<Omit<IInvoiceSettings, 'userId' | 'createdAt' | 'updatedAt'>>): Promise<IInvoiceSettings> {
   const pool = getDBPool();
-
   // Explicitly map fields to avoid issues with extra properties
   const updateData: Partial<IInvoiceSettings> = {};
   if(settings.companyName !== undefined) updateData.companyName = settings.companyName;
   if(settings.companyAddress !== undefined) updateData.companyAddress = settings.companyAddress;
+  if(settings.companyPhone !== undefined) updateData.companyPhone = settings.companyPhone;
+  if(settings.companyEmail !== undefined) updateData.companyEmail = settings.companyEmail;
+  if(settings.invoicePrefix !== undefined) updateData.invoicePrefix = settings.invoicePrefix;
   if(settings.vatNumber !== undefined) updateData.vatNumber = settings.vatNumber;
   if(settings.defaultInvoiceNotes !== undefined) updateData.defaultInvoiceNotes = settings.defaultInvoiceNotes;
-  if(settings.invoicePrefix !== undefined) updateData.invoicePrefix = settings.invoicePrefix;
   if(settings.nextInvoiceNumber !== undefined) updateData.nextInvoiceNumber = settings.nextInvoiceNumber;
+  if(settings.bankAccount !== undefined) updateData.bankAccount = settings.bankAccount;
+  if(settings.startNumber !== undefined) updateData.startNumber = settings.startNumber;
+  if(settings.fileNameBase !== undefined) updateData.fileNameBase = settings.fileNameBase;
 
   const setClauses = Object.keys(updateData)
     .map((key, i) => `"${toSnakeCase(key)}" = $${i + 1}`)
@@ -339,25 +351,98 @@ export async function saveInvoiceSettings(userId: string, settings: Partial<Omit
 
   const values = Object.values(updateData);
   values.push(userId);
-
   const query = `
-    INSERT INTO invoice_settings (user_id, ${Object.keys(updateData).map(key => `"${toSnakeCase(key)}"`).join(', ')})
-    VALUES ($${values.length}, ${Object.keys(updateData).map((_, i) => `$${i + 1}`).join(', ')})
-    ON CONFLICT (user_id) DO UPDATE SET
-      ${setClauses}, updated_at = NOW()
-    RETURNING user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes", invoice_prefix AS "invoicePrefix", next_invoice_number AS "nextInvoiceNumber", created_at AS "createdAt", updated_at AS "updatedAt";
+    UPDATE invoice_settings SET
+      ${setClauses},
+      updated_at = NOW()
+    WHERE user_id = $${values.length}
+    RETURNING user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", company_phone AS "companyPhone",
+           company_email AS "companyEmail", invoice_prefix AS "invoicePrefix", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes",
+           next_invoice_number AS "nextInvoiceNumber", bank_account AS "bankAccount", start_number AS "startNumber", file_name_base AS "fileNameBase",
+           created_at AS "createdAt", updated_at AS "updatedAt";
   `;
   try {
     const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    console.error(`Error saving invoice settings for user ID ${userId}:`, error);
+    throw error;
+  }
+}
+
+export async function getGeneralSettings(userId: string): Promise<IGeneralSettings | null> {
+  const pool = getDBPool();
+  const query = `
+    SELECT user_id AS "userId", firstname, surname, address, postcode, city, account_email AS "accountEmail", phone_number AS "phoneNumber",
+           company_name AS "companyName", company_address AS "companyAddress", company_postcode AS "companyPostcode", company_city AS "companyCity",
+           customer_email AS "customerEmail", company_phone_number AS "companyPhoneNumber", chamber_of_commerce AS "chamberOfCommerce",
+           vat_number AS "vatNumber", iban, optional_vat_number AS "optionalVatNumber", created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM general_settings WHERE user_id = $1
+  `;
+  try {
+    const result = await pool.query(query, [userId]);
      if (result.rows.length > 0) {
         return result.rows[0];
     }
-    const currentSettings = await getInvoiceSettings(userId);
-    if (!currentSettings) throw new Error("Invoice settings not found and could not be saved/retrieved.");
-    return currentSettings;
-
+    return null;
   } catch (error) {
-    console.error('Error saving invoice settings:', error);
+    console.error(`Error fetching general settings for user ID ${userId}:`, error);
     throw error;
   }
+}
+
+export async function saveGeneralSettings(userId: string, settings: Partial<Omit<IGeneralSettings, 'userId' | 'createdAt' | 'updatedAt'>>): Promise<IGeneralSettings> {
+  const pool = getDBPool();
+  // Upsert logic: Insert if not exists, update if exists for the given userId.
+  const fields = [
+    'firstname', 'surname', 'address', 'postcode', 'city', 'account_email', 'phone_number',
+    'company_name', 'company_address', 'company_postcode', 'company_city', 'customer_email',
+    'company_phone_number', 'chamber_of_commerce', 'vat_number', 'iban', 'optional_vat_number'
+  ];
+  // Map snake_case fields to camelCase keys for settings object
+  const camelMap: Record<string, keyof Omit<IGeneralSettings, 'userId' | 'createdAt' | 'updatedAt'>> = {
+    firstname: 'firstname',
+    surname: 'surname',
+    address: 'address',
+    postcode: 'postcode',
+    city: 'city',
+    account_email: 'accountEmail',
+    phone_number: 'phoneNumber',
+    company_name: 'companyName',
+    company_address: 'companyAddress',
+    company_postcode: 'companyPostcode',
+    company_city: 'companyCity',
+    customer_email: 'customerEmail',
+    company_phone_number: 'companyPhoneNumber',
+    chamber_of_commerce: 'chamberOfCommerce',
+    vat_number: 'vatNumber',
+    iban: 'iban',
+    optional_vat_number: 'optionalVatNumber',
+  };
+  const values = fields.map(f => settings[camelMap[f]] ?? null);
+  const query = `
+    INSERT INTO general_settings (
+      user_id, ${fields.join(', ')}
+    ) VALUES (
+      $1, ${fields.map((_, i) => `$${i + 2}`).join(', ')}
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+      ${fields.map((f, i) => `${f} = EXCLUDED.${f}`).join(', ')},
+      updated_at = NOW()
+    RETURNING user_id AS "userId", firstname, surname, address, postcode, city, account_email AS "accountEmail", phone_number AS "phoneNumber",
+           company_name AS "companyName", company_address AS "companyAddress", company_postcode AS "companyPostcode", company_city AS "companyCity",
+           customer_email AS "customerEmail", company_phone_number AS "companyPhoneNumber", chamber_of_commerce AS "chamberOfCommerce",
+           vat_number AS "vatNumber", iban, optional_vat_number AS "optionalVatNumber", created_at AS "createdAt", updated_at AS "updatedAt";
+  `;
+  try {
+    const result = await pool.query(query, [userId, ...values]);
+    return result.rows[0];
+  } catch (error) {
+    console.error(`Error saving general settings for user ID ${userId}:`, error);
+    throw error;
+  }
+}
+
+function toCamelCase(s: string) {
+  return s.replace(/_([a-z])/g, g => g[1].toUpperCase());
 }

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { getDBPool } from '../utils/db'; // Ensure this path is correct
 import * as ShopService from '../services/shop.service'; // Import all service functions
-import { IOffer } from '../models/shop.model'; // Import IOffer for type checking
+import { IOffer, IProduct } from '../models/shop.model'; // Import IOffer and IProduct for type checking
 
 export const getShopInfo = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -270,6 +270,33 @@ export const exportOffersHandler = async (req: Request, res: Response, next: Nex
     console.log(`exportOffersHandler: Offer export successful for user ${userId}. Triggering product sync...`);
     const productSyncResult = await ShopService.syncProductsFromOffersAndRetailerApi(userId);
     console.log(`exportOffersHandler: Product sync finished for user ${userId}.`);
+
+    // Backend-to-backend call to settings_service to mark shop sync as complete
+    if (
+      productSyncResult.success === productSyncResult.processed &&
+      productSyncResult.failed === 0
+    ) {
+      try {
+        const settingsServiceUrl = process.env.SETTINGS_SERVICE_URL || 'http://settings_service:3000';
+        if (typeof fetch !== 'function') throw new Error('Global fetch is not available. Please use Node.js 18+ or polyfill fetch.');
+        const resp = await fetch(`${settingsServiceUrl}/settings/onboarding/step`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userId,
+            'X-Internal-Service': 'shop_service'
+          },
+          body: JSON.stringify({ hasCompletedShopSync: true })
+        });
+        if (!resp.ok) {
+          console.error('Failed to update onboarding status in settings_service:', await resp.text());
+        } else {
+          console.log('Successfully updated onboarding status in settings_service for shop sync.');
+        }
+      } catch (err) {
+        console.error('Error calling settings_service to update onboarding status:', err);
+      }
+    }
 
     // Consolidate results
     const finalStatus = (offerExportResult.errorCount > 0 || productSyncResult.failed > 0 || productSyncResult.errors.length > 0) ? 207 : 200;
@@ -540,7 +567,7 @@ export const deleteOrderHandler = async (req: Request, res: Response, next: Next
 export const updateProductVatHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { ean } = req.params;
-    const { vatRate } = req.body;
+    const { vatRate, country } = req.body;
 
     if (typeof vatRate !== 'number' && vatRate !== null) {
       res.status(400).json({ message: 'Invalid vatRate provided. Must be a number or null.' });
@@ -553,6 +580,12 @@ export const updateProductVatHandler = async (req: Request, res: Response, next:
         return;
     }
 
+    // Validate country if provided
+    if (country !== undefined && (typeof country !== 'string' || country.trim() === '')) {
+      res.status(400).json({ message: 'Invalid country provided. Must be a non-empty string.' });
+      return;
+    }
+
     // User ID from header might be needed if ShopService.updateProduct requires it for auditing or other purposes.
     // const userId = req.headers['x-user-id'] as string;
     // if (!userId) {
@@ -560,9 +593,14 @@ export const updateProductVatHandler = async (req: Request, res: Response, next:
     //   return;
     // }
 
-    console.log(`updateProductVatHandler: Updating VAT for EAN ${ean} to ${vatRate}`);
+    console.log(`updateProductVatHandler: Updating VAT for EAN ${ean} to ${vatRate} with country ${country}`);
 
-    const updatedProduct = await ShopService.updateProduct(ean, { vatRate });
+    const updateData: Partial<IProduct> = { vatRate };
+    if (country !== undefined) {
+      updateData.country = country;
+    }
+
+    const updatedProduct = await ShopService.updateProduct(ean, updateData);
 
     if (updatedProduct) {
       res.status(200).json(updatedProduct);

@@ -11,7 +11,6 @@ const initialStatus = {
   userId: null,
   hasConfiguredBolApi: false,
   hasCompletedShopSync: false,
-  hasCompletedVatSetup: false,
   hasCompletedInvoiceSetup: false,
   createdAt: null,
   updatedAt: null,
@@ -19,11 +18,11 @@ const initialStatus = {
 
 // Helper to determine current step from onboardingStatus
 const getStepFromStatus = (status) => {
+  console.log('getStepFromStatus', status);
   if (!status.hasConfiguredBolApi) return 1;
   if (!status.hasCompletedShopSync) return 2;
-  if (!status.hasCompletedVatSetup) return 3;
-  if (!status.hasCompletedInvoiceSetup) return 4;
-  return 5;
+  if (!status.hasCompletedInvoiceSetup) return 3;
+  return 4;
 };
 
 export const OnboardingProvider = ({ children }) => {
@@ -33,6 +32,7 @@ export const OnboardingProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true); // Loading for onboarding data
   const [error, setError] = useState(null);
   const { authenticated, isLoading: authIsLoading, token, user } = useAuth(); // Get auth state
+  const [shopSyncInProgress, setShopSyncInProgress] = useState(false);
 
   // Reset didInitStep when user changes (logs in/out)
   useEffect(() => {
@@ -53,19 +53,24 @@ export const OnboardingProvider = ({ children }) => {
   }, [onboardingStatus]);
 
   const fetchOnboardingStatus = useCallback(async () => {
-    if (!authenticated || !token) { // Ensure authenticated and token is present
-      setIsLoading(false); // Not loading onboarding status if not auth'd
-      // setError("User not authenticated. Cannot fetch onboarding status."); // Optional: set error
-      setOnboardingStatus(initialStatus); // Reset status
+    if (!authenticated || !token) {
+      setIsLoading(false);
+      setOnboardingStatus(initialStatus);
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
-      // callApi will now use the token via keycloakService
       const data = await callApi('/settings/settings/onboarding/status', 'GET');
-      console.log(data)
-      setOnboardingStatus(prevStatus => ({ ...prevStatus, ...data }));
+      console.log('Fetched onboarding status:', data);
+      
+      // Only update state if data actually changed
+      setOnboardingStatus(prevStatus => {
+        const newStatus = { ...prevStatus, ...data };
+        const hasChanged = JSON.stringify(prevStatus) !== JSON.stringify(newStatus);
+        console.log('Onboarding status changed:', hasChanged);
+        return hasChanged ? newStatus : prevStatus;
+      });
     } catch (err) {
       console.error('Failed to fetch onboarding status:', err);
       const errorMessage = (err && err.message) ? err.message : String(err);
@@ -73,7 +78,7 @@ export const OnboardingProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [authenticated, token]); // Add authenticated and token as dependencies
+  }, [authenticated, token]);
 
   useEffect(() => {
     // Fetch onboarding status only if authentication is complete and user is authenticated
@@ -85,6 +90,8 @@ export const OnboardingProvider = ({ children }) => {
       setIsLoading(false);
     }
   }, [authIsLoading, authenticated, fetchOnboardingStatus]);
+
+  // Removed polling logic - no longer needed since user only needs to POST/update settings
 
   const updateOnboardingStep = useCallback(async (stepPayload) => {
     if (!authenticated) {
@@ -126,25 +133,6 @@ setOnboardingStatus(prevStatus => {
     return await updateOnboardingStep({ [stepName]: true });
   }, [updateOnboardingStep, onboardingStatus, authenticated]); // Add authenticated
 
-  // Manual navigation functions
-  const goToStep = useCallback((stepId) => {
-    if (stepId >= 1 && stepId <= 5) {
-      setCurrentStep(stepId);
-    }
-  }, []);
-
-  const goToNextStep = useCallback(() => {
-    if (currentStep < 5) {
-      setCurrentStep(currentStep + 1);
-    }
-  }, [currentStep]);
-
-  const goToPreviousStep = useCallback(() => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
-  }, [currentStep]);
-
   // Helper functions for step validation
   const isStepComplete = useCallback((stepId) => {
     switch (stepId) {
@@ -153,39 +141,56 @@ setOnboardingStatus(prevStatus => {
       case 2:
         return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync;
       case 3:
-        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup;
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedInvoiceSetup;
       case 4:
-        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup && onboardingStatus.hasCompletedInvoiceSetup;
-      case 5:
-        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup && onboardingStatus.hasCompletedInvoiceSetup;
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedInvoiceSetup;
       default:
         return false;
     }
   }, [onboardingStatus]);
 
-  const canGoToStep = useCallback((stepId) => {
-    // Can always go to step 1
-    if (stepId === 1) return true;
-    
-    // For other steps, check if previous step is complete
-    return isStepComplete(stepId - 1);
-  }, [isStepComplete]);
+  // Update canGoNext and navigation logic for 4 steps (no VAT step)
 
-  // canGoNext: only true if current step is complete
-  const canGoNext = useCallback(() => {
-    switch (currentStep) {
+  const TOTAL_STEPS = 5;
+
+  function canGoNext(step = currentStep) {
+    switch (step) {
       case 1:
         return onboardingStatus.hasConfiguredBolApi;
       case 2:
-        return onboardingStatus.hasCompletedShopSync;
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync;
       case 3:
-        return onboardingStatus.hasCompletedVatSetup;
+        // VAT step: always allow next
+        return true;
       case 4:
-        return onboardingStatus.hasCompletedInvoiceSetup;
+        // Allow next if all onboarding is complete (to reach step 5)
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedInvoiceSetup;
+      case 5:
+        // Last step: onboarding complete, no next
+        return false;
       default:
         return false;
     }
-  }, [currentStep, onboardingStatus]);
+  }
+
+  // Update navigation logic to use 4 steps
+  const goToStep = useCallback((stepId) => {
+    if (stepId >= 1 && stepId <= TOTAL_STEPS) {
+      setCurrentStep(stepId);
+    }
+  }, []);
+
+  const goToNextStep = useCallback(() => {
+    if (currentStep < TOTAL_STEPS) {
+      setCurrentStep(currentStep + 1);
+    }
+  }, [currentStep]);
+
+  const goToPrevStep = useCallback(() => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  }, [currentStep]);
 
   const canGoPrevious = useCallback(() => {
     // Can always go previous if not on first step
@@ -202,11 +207,13 @@ setOnboardingStatus(prevStatus => {
     markStepAsComplete,
     goToStep,
     goToNextStep,
-    goToPreviousStep,
+    goToPreviousStep: goToPrevStep, // Renamed to avoid conflict with goToNextStep
     isStepComplete,
-    canGoToStep,
+    canGoToStep: canGoNext, // Renamed to avoid conflict with canGoNext
     canGoNext,
-    canGoPrevious
+    canGoPrevious,
+    shopSyncInProgress,
+    setShopSyncInProgress
   };
 
   return (

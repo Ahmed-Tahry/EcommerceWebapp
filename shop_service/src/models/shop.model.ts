@@ -57,5 +57,6 @@ export interface IProduct {
   lastSyncFromBol?: Date | null; // Timestamp of the last successful sync from Bol
   lastSyncToBol?: Date | null;   // Timestamp of the last successful push to Bol
   vatRate?: number | null; // VAT percentage for the product
+  country?: string | null; // Country for VAT rate application
   userId?: string; // ID of the user/shop that owns this product
 }

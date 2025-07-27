@@ -140,7 +140,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = useCallback(() => {
     if (keycloak) {
-      keycloak.login({ redirectUri: window.location.origin + '/onboarding' });
+      keycloak.login({ redirectUri: window.location.origin + '/' });
     }
   }, [keycloak]);
 

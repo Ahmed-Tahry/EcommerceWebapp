@@ -3,18 +3,20 @@ export interface IAccountDetails {
   userId: string; // From Keycloak (X-User-ID), should be unique for each user's settings
   bolClientId: string | null;
   bolClientSecret: string | null; // Store securely (e.g., encrypted or use a vault)
+  salesNumber?: string | null;
+  status?: string | null;
+  apiCredentials?: Record<string, any> | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export interface IUserOnboardingStatus {
-  userId: string; // PK, from Keycloak (X-User-ID)
+  userId: string;
   hasConfiguredBolApi: boolean;
   hasCompletedShopSync: boolean;
-  hasCompletedVatSetup: boolean;
   hasCompletedInvoiceSetup: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
+  createdAt: Date | null;
+  updatedAt: Date | null;
 }
 
 export interface IVatSetting {
@@ -30,10 +32,38 @@ export interface IInvoiceSettings {
   userId: string; // User ID (primary key)
   companyName: string | null;
   companyAddress: string | null; // Could be structured address object later
+  companyPhone?: string | null;
+  companyEmail?: string | null;
   vatNumber: string | null;
   defaultInvoiceNotes: string | null;
   invoicePrefix?: string | null; // e.g., "INV-"
   nextInvoiceNumber?: number; // To auto-increment invoice numbers
+  bankAccount?: string;
+  startNumber?: string;
+  fileNameBase?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IGeneralSettings {
+  userId: string;
+  firstname: string;
+  surname: string;
+  address: string;
+  postcode: string;
+  city: string;
+  accountEmail: string;
+  phoneNumber?: string;
+  companyName: string;
+  companyAddress: string;
+  companyPostcode: string;
+  companyCity: string;
+  customerEmail: string;
+  companyPhoneNumber?: string;
+  chamberOfCommerce: string;
+  vatNumber: string;
+  iban?: string;
+  optionalVatNumber?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
