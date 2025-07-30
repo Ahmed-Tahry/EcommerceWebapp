@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import Link from "next/link"
 import FullScreenButton from '../elements/FullScreenButton'
 import Language from '../elements/Language'
+import ShopDropdown from '../ShopDropdown'
 import { useAuth } from '@/contexts/AuthContext' // Import useAuth
 
 const ThemeSwitch = dynamic(() => import('../elements/ThemeSwitch'), {
@@ -27,7 +28,7 @@ export default function Header1({ scroll, isMobileMenu, handleSidebar, handleOff
             <div className="header-dashboard">
                 <div className="wrap">
                     <div className="header-left">
-                        <Link href="/">
+                        <Link href="/" className="logo">
                             <img id="logo_header_mobile" alt="" src="/images/logo/logo.png" data-light="images/logo/logo.png" data-dark="images/logo/logo-dark.png" data-width="154px" data-height="52px" data-retina="images/logo/logo@2x.png" />
                         </Link>
                         <div className="button-show-hide" onClick={handleSidebar}>
@@ -48,10 +49,16 @@ export default function Header1({ scroll, isMobileMenu, handleSidebar, handleOff
                         </form>
                     </div>
                     <div className="header-grid">
-                        <div className="header-item country">
+                        <div className="header-item">
                             <Language />
                         </div>
                         <ThemeSwitch />
+                        {/* Shop Dropdown - Only show when authenticated */}
+                        {authenticated && (
+                            <div className="header-item">
+                                <ShopDropdown />
+                            </div>
+                        )}
                         {/* Notifications and Messages popups are kept as is for brevity */}
                         <div className="popup-wrap noti type-header">
                              <Menu as="div" className="dropdown">
@@ -71,13 +78,12 @@ export default function Header1({ scroll, isMobileMenu, handleSidebar, handleOff
                             <Menu as="div" className="dropdown">
                                 <Menu.Button className="btn btn-secondary dropdown-toggle" type="button">
                                     <span className="header-item">
-                                        <span className="text-tiny">1</span>
-                                        <i className="icon-message-square" />
+                                        <span className="text-tiny">2</span>
+                                        <i className="icon-message" />
                                     </span>
-                                </Menu.Button
-                                >
+                                </Menu.Button>
                                 <Menu.Items as="ul" className="dropdown-menu dropdown-menu-end has-content show d-flex end-0">
-                                    <li><h6>Notifications (Demo)</h6></li>
+                                    <li><h6>Message (Demo)</h6></li>
                                     {/* Simplified content */}
                                 </Menu.Items>
                             </Menu>

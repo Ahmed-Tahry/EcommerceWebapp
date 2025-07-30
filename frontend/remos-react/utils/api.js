@@ -12,7 +12,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhos
  */
 import { getKeycloakInstance } from '@/lib/keycloakService';
 
-export const callApi = async (endpoint, method = 'GET', body = null, additionalHeaders = {}) => {
+export const callApi = async (endpoint, method = 'GET', body = null, additionalHeaders = {}, selectedShop = null) => {
   let token = null;
   const kcInstance = getKeycloakInstance();
 
@@ -38,6 +38,30 @@ export const callApi = async (endpoint, method = 'GET', body = null, additionalH
   if (token) {
     console.log("the token here" ,token)
     headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Add shop ID from parameter or localStorage if available
+  let selectedShopId = selectedShop ? selectedShop.shopId : null;
+  if (!selectedShopId) {
+    selectedShopId = localStorage.getItem('selectedShopId');
+  }
+  
+  if (selectedShopId) {
+    headers['X-Shop-ID'] = selectedShopId;
+    console.log('callApi: Added X-Shop-ID header:', selectedShopId);
+  } else {
+    console.log('callApi: No shop ID available in localStorage or parameter');
+    console.log('callApi: Available localStorage keys:', Object.keys(localStorage));
+  }
+
+  // Add user ID from localStorage or extract from token
+  const userId = localStorage.getItem('userId');
+  if (userId) {
+    headers['X-User-ID'] = userId;
+    console.log('callApi: Added X-User-ID header:', userId);
+  } else {
+    console.log('callApi: No user ID available in localStorage');
+    console.log('callApi: Available localStorage keys:', Object.keys(localStorage));
   }
 
   const config = {

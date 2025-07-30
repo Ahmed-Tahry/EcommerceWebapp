@@ -9,6 +9,7 @@
     "strict": true, // Enabled strict mode for better type safety
     "skipLibCheck": true, // Skip type checking of declaration files
     "forceConsistentCasingInFileNames": true, // Enforce consistent file casing
+    "types": ["./src/types/express"],
     "lib": ["es6", "dom"] // Added dom lib as per original npx tsc --init
   },
   "include": [

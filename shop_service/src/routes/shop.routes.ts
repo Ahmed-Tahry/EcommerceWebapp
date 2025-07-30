@@ -1,37 +1,69 @@
+
 import { Router } from 'express';
 import {
-    getShopInfo,
-    createOfferHandler,
-    getOfferByIdHandler,
-    getAllOffersHandler,
-    updateOfferHandler,
-    deleteOfferHandler,
-    exportOffersHandler,
-    // Order controllers
-    createOrderHandler,
-    getOrderByIdHandler,
-    getAllOrdersHandler,
-    updateOrderHandler,
-    deleteOrderHandler,
-    syncBolOrdersHandler, // Import the new order sync handler
-    // OrderItem controllers
-    createOrderItemHandler,
-    getOrderItemByIdHandler,
-    getOrderItemsByOrderIdHandler,
-    updateOrderItemHandler,
-    deleteOrderItemHandler,
-    // Product Content Handlers
-    getProductContentHandler,
-    // syncProductFromBolHandler, // Removed as redundant
-    syncProductToBolHandler,
-    getBolProcessStatusHandler,
-    // syncProductsNewHandler, // Commented out as it's now triggered by exportOffersHandler
-    updateProductVatHandler, // Import the VAT update handler
-    getAllProductsHandler, // Import the new handler for GET /products
-    getProductVatRatesHandler, setProductVatRateHandler, deleteProductVatRateHandler
+  getShopInfo,
+  createOfferHandler,
+  getOfferByIdHandler,
+  getAllOffersHandler,
+  updateOfferHandler,
+  deleteOfferHandler,
+  exportAllOffersAsCsvHandler,
+  // Order controllers
+  createOrderHandler,
+  getOrderByIdHandler,
+  getAllOrdersHandler,
+  updateOrderHandler,
+  deleteOrderHandler,
+  synchronizeBolOrdersHandler,
+  // OrderItem controllers
+  createOrderItemHandler,
+  getOrderItemByIdHandler,
+  getOrderItemsByOrderIdHandler,
+  updateOrderItemHandler,
+  deleteOrderItemHandler,
+  // Product Content Handlers
+  getBolProductContentHandler,
+  pushLocalProductToBolHandler,
+  pollBolProcessStatusHandler,
+  // VAT and Product handlers
+  getAllProductsHandler,
+  getVatRatesForProductHandler,
+  setVatRateForProductHandler,
+  deleteVatRateForProductHandler,
 } from '../controllers/shop.controller';
 
 const router = Router();
+
+// Apply shopId validation to all routes
+router.use((req, res, next) => {
+  const shopId = req.headers['x-shop-id'] as string | undefined;
+  if (!shopId) {
+    return res.status(400).json({ message: 'Shop ID must be provided in X-Shop-ID header.' });
+  }
+  req.shopId = shopId;
+  next();
+});
+
+// Apply userId validation to routes requiring userId
+const userIdRequiredRoutes = [
+  '/products',
+  '/products/:ean/bol',
+  '/products/:ean/sync-to-bol',
+  '/bol/process-status/:processId',
+  '/orders/sync/bol',
+  '/offers/export/csv',
+];
+router.use(userIdRequiredRoutes, (req, res, next) => {
+  const userId = (req.user as { id?: string } | undefined)?.id || 
+                 req.query.userId as string | undefined || 
+                 req.body.userId as string | undefined ||
+                 req.headers['x-user-id'] as string | undefined;
+  if (!userId) {
+    return res.status(400).json({ message: 'User ID must be provided (via auth, query, body, or X-User-ID header).' });
+  }
+  req.userId = userId;
+  next();
+});
 
 // Existing route
 router.get('/info', getShopInfo);
@@ -42,45 +74,32 @@ router.get('/offers', getAllOffersHandler);
 router.get('/offers/:offerId', getOfferByIdHandler);
 router.put('/offers/:offerId', updateOfferHandler);
 router.delete('/offers/:offerId', deleteOfferHandler);
-router.get('/offers/export/csv', exportOffersHandler); // New route for CSV export
+router.get('/offers/export/csv', exportAllOffersAsCsvHandler);
 
 // Routes for Orders CRUD
-router.post('/orders', createOrderHandler); // Create a new order
-router.get('/orders', getAllOrdersHandler); // Get all orders
-router.get('/orders/:orderId', getOrderByIdHandler); // Get a specific order by ID
+router.post('/orders', createOrderHandler);
+router.get('/orders', getAllOrdersHandler);
+router.get('/orders/:orderId', getOrderByIdHandler);
 router.put('/orders/:orderId', updateOrderHandler);
 router.delete('/orders/:orderId', deleteOrderHandler);
-router.post('/orders/sync/bol', syncBolOrdersHandler); // New route for Bol order sync
+router.post('/orders/sync/bol', synchronizeBolOrdersHandler);
 
 // Routes for OrderItems CRUD
-// Create a new order item (could also be POST /api/shop/orders/:orderId/items)
 router.post('/order-items', createOrderItemHandler);
-
-// Get a specific order item by its ID
 router.get('/order-items/:orderItemId', getOrderItemByIdHandler);
-
-// Get all items for a specific order
 router.get('/orders/:orderId/items', getOrderItemsByOrderIdHandler);
-
-// Update a specific order item by its ID
 router.put('/order-items/:orderItemId', updateOrderItemHandler);
-
-// Delete a specific order item by its ID
 router.delete('/order-items/:orderItemId', deleteOrderItemHandler);
 
 // Routes for Product Content
-router.get('/products/:ean/bol', getProductContentHandler); // Get Bol product content
-// router.post('/products/:ean/sync-from-bol', syncProductFromBolHandler); // Removed as redundant
-router.post('/products/:ean/sync-to-bol', syncProductToBolHandler); // Sync local content to Bol
-router.get('/bol/process-status/:processId', getBolProcessStatusHandler); // Generic Bol process status poller
-
-// Route for the new product sync logic
-// router.post('/products/sync-new', syncProductsNewHandler); // Commented out as it's now triggered by exportOffersHandler
+router.get('/products/:ean/bol', getBolProductContentHandler);
+router.post('/products/:ean/sync-to-bol', pushLocalProductToBolHandler);
+router.get('/bol/process-status/:processId', pollBolProcessStatusHandler);
 
 // Per-country VAT endpoints
-router.get('/products/:ean/vat', getProductVatRatesHandler);
-router.put('/products/:ean/vat', setProductVatRateHandler);
-router.delete('/products/:ean/vat', deleteProductVatRateHandler);
+router.get('/products/:ean/vat', getVatRatesForProductHandler);
+router.put('/products/:ean/vat', setVatRateForProductHandler);
+router.delete('/products/:ean/vat', deleteVatRateForProductHandler);
 
 // Route to get all products (for VAT management UI)
 router.get('/products', getAllProductsHandler);

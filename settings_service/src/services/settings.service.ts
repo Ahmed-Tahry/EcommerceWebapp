@@ -1,119 +1,140 @@
 import { getDBPool } from '../utils/db';
-import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus, IGeneralSettings } from '../models/settings.model';
-// Pool type is not directly used, can be removed if not needed elsewhere.
-// import { Pool } from 'pg';
+import { IAccountDetails, IVatSetting, IInvoiceSettings, IUserOnboardingStatus, IGeneralSettings, IShop } from '../models/settings.model';
 
 // Helper to convert camelCase to snake_case for DB columns
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 }
 
-// --- Account Details Service (Per-User) ---
+// --- Account Details Service ---
 
-export async function getAccountDetailsByUserId(userId: string): Promise<IAccountDetails | null> {
+export async function getAccountDetailsByShopId(shopId: string): Promise<IAccountDetails | null> {
   const pool = getDBPool();
   const query = `
-    SELECT id, user_id AS "userId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
+    SELECT id, user_id AS "userId", shop_id AS "shopId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
            sales_number AS "salesNumber", status, api_credentials AS "apiCredentials", created_at AS "createdAt", updated_at AS "updatedAt"
-    FROM account_details WHERE user_id = $1
+    FROM account_details WHERE shop_id = $1
   `;
   try {
-    const result = await pool.query(query, [userId]);
-    if (result.rows.length > 0) {
-      return result.rows[0];
-    }
-    return null;
+    const result = await pool.query(query, [shopId]);
+    return result.rows.length > 0 ? result.rows[0] : null;
   } catch (error) {
-    console.error(`Error fetching account details for user ID ${userId}:`, error);
+    console.error(`Error fetching account details for shopId ${shopId}:`, error);
     throw error;
   }
 }
 
 export async function saveAccountDetails(
   userId: string,
-  details: Partial<Omit<IAccountDetails, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>
+  shopId: string,
+  details: Partial<Omit<IAccountDetails, 'id' | 'userId' | 'shopId' | 'createdAt' | 'updatedAt'>>
 ): Promise<IAccountDetails> {
   const pool = getDBPool();
   const { bolClientId, bolClientSecret, salesNumber, status, apiCredentials } = details;
 
-  // Upsert logic: Insert if not exists, update if exists for the given userId.
-  const query = `
-    INSERT INTO account_details (user_id, bol_client_id, bol_client_secret, sales_number, status, api_credentials)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    ON CONFLICT (user_id) DO UPDATE SET
-      bol_client_id = EXCLUDED.bol_client_id,
-      bol_client_secret = EXCLUDED.bol_client_secret,
-      sales_number = EXCLUDED.sales_number,
-      status = EXCLUDED.status,
-      api_credentials = EXCLUDED.api_credentials,
-      updated_at = NOW()
-    RETURNING id, user_id AS "userId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
+  // First, try to update existing record
+  const updateQuery = `
+    UPDATE account_details 
+    SET bol_client_id = $3,
+        bol_client_secret = $4,
+        sales_number = $5,
+        status = $6,
+        api_credentials = $7,
+        updated_at = NOW()
+    WHERE user_id = $1 AND shop_id = $2
+    RETURNING id, user_id AS "userId", shop_id AS "shopId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
            sales_number AS "salesNumber", status, api_credentials AS "apiCredentials", created_at AS "createdAt", updated_at AS "updatedAt";
   `;
+  
   try {
-    const result = await pool.query(query, [userId, bolClientId, bolClientSecret, salesNumber, status, apiCredentials ? JSON.stringify(apiCredentials) : null]);
+    // Try to update first
+    let result = await pool.query(updateQuery, [
+      userId, 
+      shopId, 
+      bolClientId, 
+      bolClientSecret, 
+      salesNumber, 
+      status, 
+      apiCredentials ? JSON.stringify(apiCredentials) : null
+    ]);
+    
+    // If no rows were updated, insert new record
+    if (result.rows.length === 0) {
+      const insertQuery = `
+        INSERT INTO account_details (user_id, shop_id, bol_client_id, bol_client_secret, sales_number, status, api_credentials)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, user_id AS "userId", shop_id AS "shopId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
+               sales_number AS "salesNumber", status, api_credentials AS "apiCredentials", created_at AS "createdAt", updated_at AS "updatedAt";
+      `;
+      
+      result = await pool.query(insertQuery, [
+        userId, 
+        shopId, 
+        bolClientId, 
+        bolClientSecret, 
+        salesNumber, 
+        status, 
+        apiCredentials ? JSON.stringify(apiCredentials) : null
+      ]);
+    }
+    
     return result.rows[0];
   } catch (error) {
-    console.error(`Error saving account details for user ID ${userId}:`, error);
+    console.error(`Error saving account details for userId ${userId}, shopId ${shopId}:`, error);
     throw error;
   }
 }
 
-
 // --- User Onboarding Status Service ---
 
-export async function getOnboardingStatus(userId: string): Promise<IUserOnboardingStatus | null> {
+export async function getOnboardingStatus(userId: string, shopId: string): Promise<IUserOnboardingStatus | null> {
   const pool = getDBPool();
   try {
-const result = await pool.query(
-  'SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt" FROM user_onboarding_status WHERE user_id = $1',
-  [userId]
-);
+    const result = await pool.query(
+      `SELECT user_id AS "userId", shop_id AS "shopId", has_configured_bol_api AS "hasConfiguredBolApi",
+              has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM user_onboarding_status WHERE user_id = $1 AND shop_id = $2`,
+      [userId, shopId]
+    );
     if (result.rows.length > 0) {
       return result.rows[0];
     }
-    // If no record, create a default one with all steps false
-    const defaultStatus: Omit<IUserOnboardingStatus, 'createdAt'|'updatedAt'> = {
+    // Create default status if none exists
+    const defaultStatus: Omit<IUserOnboardingStatus, 'createdAt' | 'updatedAt'> = {
       userId,
+      shopId,
       hasConfiguredBolApi: false,
       hasCompletedShopSync: false,
       hasCompletedInvoiceSetup: false,
     };
     return await createOrUpdateOnboardingStatus(defaultStatus);
-
   } catch (error) {
-    console.error(`Error fetching onboarding status for user ID ${userId}:`, error);
+    console.error(`Error fetching onboarding status for userId ${userId}, shopId ${shopId}:`, error);
     throw error;
   }
 }
 
-// Using a more generic update function to handle various steps
 export async function updateOnboardingStatus(
   userId: string,
-  statusUpdates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'createdAt' | 'updatedAt'>>
+  shopId: string,
+  statusUpdates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'shopId' | 'createdAt' | 'updatedAt'>>
 ): Promise<IUserOnboardingStatus> {
-    return createOrUpdateOnboardingStatus({ userId, ...statusUpdates });
+  return createOrUpdateOnboardingStatus({ userId, shopId, ...statusUpdates });
 }
 
-
 async function createOrUpdateOnboardingStatus(
-  statusData: Partial<IUserOnboardingStatus> & { userId: string }
+  statusData: Partial<IUserOnboardingStatus> & { userId: string; shopId: string }
 ): Promise<IUserOnboardingStatus> {
   const pool = getDBPool();
-  const {
-    userId,
-    hasConfiguredBolApi,
-    hasCompletedShopSync,
-    hasCompletedInvoiceSetup
-  } = statusData;
+  const { userId, shopId, hasConfiguredBolApi, hasCompletedShopSync, hasCompletedInvoiceSetup } = statusData;
 
   const updateFields: string[] = [];
-  const insertFields: string[] = ['user_id'];
-  const insertValuesPlaceholders: string[] = ['$1'];
-  const values: any[] = [userId];
-  let valueCounter = 2;
+  const insertFields: string[] = ['user_id', 'shop_id'];
+  const insertValuesPlaceholders: string[] = ['$1', '$2'];
+  const values: any[] = [userId, shopId];
+  let valueCounter = 3;
 
-  // Helper to add field to update and insert lists
   const addField = (fieldNameDb: string, value: any) => {
     if (value !== undefined) {
       updateFields.push(`${fieldNameDb} = $${valueCounter}`);
@@ -128,61 +149,33 @@ async function createOrUpdateOnboardingStatus(
   addField('has_completed_shop_sync', hasCompletedShopSync);
   addField('has_completed_invoice_setup', hasCompletedInvoiceSetup);
 
-  // If it's a new record and no specific true/false values were passed for some fields,
-  // they should default to false as per DB schema.
-  // The INSERT part will handle this if columns are not in statusData.
-  // However, if a field is explicitly 'undefined' in statusData but we want to ensure it's part of the INSERT with default.
-  // The current addField logic correctly omits undefined fields from the dynamic query parts.
-  // The DB default will apply for INSERT if a column is not listed.
-  // For ON CONFLICT DO UPDATE, we only update fields that were explicitly passed.
-
   if (updateFields.length === 0) {
-    // No actual fields to update were provided.
-    // Try to fetch existing status. If it exists, return it.
-    // If it doesn't exist, it means we were called with just userId (or all other fields undefined)
-    // and the intention might be to create a default record.
-    // The getOnboardingStatus already handles creating a full default record.
-    // This situation (updateFields.length === 0) implies either:
-    // 1. An attempt to "touch" the record without changes (return existing or create default if missing).
-    // 2. Or, an empty body was sent to the update endpoint.
     const existingStatus = await pool.query(
-      `SELECT user_id AS "userId", has_configured_bol_api AS "hasConfiguredBolApi", has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup", created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM user_onboarding_status WHERE user_id = $1`,
-      [userId]
+      `SELECT user_id AS "userId", shop_id AS "shopId", has_configured_bol_api AS "hasConfiguredBolApi",
+              has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM user_onboarding_status WHERE user_id = $1 AND shop_id = $2`,
+      [userId, shopId]
     );
     if (existingStatus.rows.length > 0) {
       return existingStatus.rows[0];
     }
-    // If no fields to update and record doesn't exist, we should insert a default.
-    // This case is better handled by getOnboardingStatus which prepares a full default object.
-    // If this function is called directly with only userId for a non-existent user,
-    // we need to ensure all default values are set for the INSERT part.
-    // The current `addField` logic will result in an INSERT with only user_id if all other fields are undefined.
-    // The DB defaults (FALSE) should then apply.
-    if (insertFields.length === 1 && insertFields[0] === 'user_id') { // Only userId was provided
-        // Add default false values for all fields for the INSERT part
-        // This ensures the RETURNING clause gets all fields.
-        if (hasConfiguredBolApi === undefined) { addField('has_configured_bol_api', false); }
-        if (hasCompletedShopSync === undefined) { addField('has_completed_shop_sync', false); }
-        if (hasCompletedInvoiceSetup === undefined) { addField('has_completed_invoice_setup', false); }
-    }
+    // Add default false values for INSERT
+    if (hasConfiguredBolApi === undefined) { addField('has_configured_bol_api', false); }
+    if (hasCompletedShopSync === undefined) { addField('has_completed_shop_sync', false); }
+    if (hasCompletedInvoiceSetup === undefined) { addField('has_completed_invoice_setup', false); }
   }
-   if (insertFields.length === 1 && insertFields[0] === 'user_id' && updateFields.length > 0) {
-    // This means all fields in statusData were undefined except userId, but somehow updateFields got populated.
-    // This should not happen with current addField logic. Defensive check.
-    throw new Error("Logical error in createOrUpdateOnboardingStatus: updateFields populated with only userId defined.");
-  }
-
 
   const query = `
     INSERT INTO user_onboarding_status (${insertFields.join(", ")})
     VALUES (${insertValuesPlaceholders.join(", ")})
-    ON CONFLICT (user_id) DO UPDATE SET
+    ON CONFLICT (user_id, shop_id) DO UPDATE SET
       ${updateFields.join(", ")},
       updated_at = NOW()
-    WHERE user_onboarding_status.user_id = $1  -- Ensure update only happens for the specific user
+    WHERE user_onboarding_status.user_id = $1 AND user_onboarding_status.shop_id = $2
     RETURNING
       user_id AS "userId",
+      shop_id AS "shopId",
       has_configured_bol_api AS "hasConfiguredBolApi",
       has_completed_shop_sync AS "hasCompletedShopSync",
       has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
@@ -190,26 +183,15 @@ async function createOrUpdateOnboardingStatus(
       updated_at AS "updatedAt";
   `;
   try {
-    // console.log("Executing query:", query, "with values:", values); // For debugging
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
-    console.error(`Error creating/updating onboarding status for user ID ${userId}:`, error);
+    console.error(`Error creating/updating onboarding status for userId ${userId}, shopId ${shopId}:`, error);
     throw error;
   }
 }
 
-
-// --- VAT Settings Service (Remains System-Wide for now) ---
-
-// export async function createVatSetting(settingData: Omit<IVatSetting, 'id' | 'createdAt' | 'updatedAt'>): Promise<IVatSetting> {
-//   } catch (error) {
-//     console.error('Error saving account details:', error);
-//     throw error;
-//   }
-// }
-
-// --- VAT Settings Service ---
+// --- VAT Settings Service (Unchanged, system-wide) ---
 
 export async function createVatSetting(settingData: Omit<IVatSetting, 'id' | 'createdAt' | 'updatedAt'>): Promise<IVatSetting> {
   const pool = getDBPool();
@@ -254,9 +236,9 @@ export async function updateVatSetting(id: string, updates: Partial<Omit<IVatSet
   const pool = getDBPool();
 
   const validUpdates: Partial<Omit<IVatSetting, 'id' | 'createdAt' | 'updatedAt'>> = {};
-  if(updates.name !== undefined) validUpdates.name = updates.name;
-  if(updates.rate !== undefined) validUpdates.rate = updates.rate;
-  if(updates.isDefault !== undefined) validUpdates.isDefault = updates.isDefault;
+  if (updates.name !== undefined) validUpdates.name = updates.name;
+  if (updates.rate !== undefined) validUpdates.rate = updates.rate;
+  if (updates.isDefault !== undefined) validUpdates.isDefault = updates.isDefault;
 
   const setClauses = Object.keys(validUpdates)
     .map((key, i) => `"${toSnakeCase(key)}" = $${i + 1}`)
@@ -297,66 +279,59 @@ export async function deleteVatSetting(id: string): Promise<boolean> {
 
 // --- Invoice Settings Service ---
 
-export async function getInvoiceSettings(userId: string): Promise<IInvoiceSettings | null> {
+export async function getInvoiceSettings(shopId: string): Promise<IInvoiceSettings | null> {
   const pool = getDBPool();
   const query = `
-    SELECT user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", company_phone AS "companyPhone",
+    SELECT shop_id AS "shopId", company_name AS "companyName", company_address AS "companyAddress", company_phone AS "companyPhone",
            company_email AS "companyEmail", invoice_prefix AS "invoicePrefix", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes",
            next_invoice_number AS "nextInvoiceNumber", bank_account AS "bankAccount", start_number AS "startNumber", file_name_base AS "fileNameBase",
            created_at AS "createdAt", updated_at AS "updatedAt"
-    FROM invoice_settings WHERE user_id = $1
+    FROM invoice_settings WHERE shop_id = $1
   `;
   try {
-    const result = await pool.query(query, [userId]);
-    if (result.rows.length > 0) {
-      return result.rows[0];
-    }
-    return null;
+    const result = await pool.query(query, [shopId]);
+    return result.rows.length > 0 ? result.rows[0] : null;
   } catch (error) {
-    console.error(`Error fetching invoice settings for user ID ${userId}:`, error);
+    console.error(`Error fetching invoice settings for shopId ${shopId}:`, error);
     throw error;
   }
 }
 
-export async function saveInvoiceSettings(userId: string, settings: Partial<Omit<IInvoiceSettings, 'userId' | 'createdAt' | 'updatedAt'>>): Promise<IInvoiceSettings> {
+export async function saveInvoiceSettings(shopId: string, settings: Partial<Omit<IInvoiceSettings, 'shopId' | 'createdAt' | 'updatedAt'>>): Promise<IInvoiceSettings> {
   const pool = getDBPool();
-  // Explicitly map fields to avoid issues with extra properties
   const updateData: Partial<IInvoiceSettings> = {};
-  if(settings.companyName !== undefined) updateData.companyName = settings.companyName;
-  if(settings.companyAddress !== undefined) updateData.companyAddress = settings.companyAddress;
-  if(settings.companyPhone !== undefined) updateData.companyPhone = settings.companyPhone;
-  if(settings.companyEmail !== undefined) updateData.companyEmail = settings.companyEmail;
-  if(settings.invoicePrefix !== undefined) updateData.invoicePrefix = settings.invoicePrefix;
-  if(settings.vatNumber !== undefined) updateData.vatNumber = settings.vatNumber;
-  if(settings.defaultInvoiceNotes !== undefined) updateData.defaultInvoiceNotes = settings.defaultInvoiceNotes;
-  if(settings.nextInvoiceNumber !== undefined) updateData.nextInvoiceNumber = settings.nextInvoiceNumber;
-  if(settings.bankAccount !== undefined) updateData.bankAccount = settings.bankAccount;
-  if(settings.startNumber !== undefined) updateData.startNumber = settings.startNumber;
-  if(settings.fileNameBase !== undefined) updateData.fileNameBase = settings.fileNameBase;
+  if (settings.companyName !== undefined) updateData.companyName = settings.companyName;
+  if (settings.companyAddress !== undefined) updateData.companyAddress = settings.companyAddress;
+  if (settings.companyPhone !== undefined) updateData.companyPhone = settings.companyPhone;
+  if (settings.companyEmail !== undefined) updateData.companyEmail = settings.companyEmail;
+  if (settings.invoicePrefix !== undefined) updateData.invoicePrefix = settings.invoicePrefix;
+  if (settings.vatNumber !== undefined) updateData.vatNumber = settings.vatNumber;
+  if (settings.defaultInvoiceNotes !== undefined) updateData.defaultInvoiceNotes = settings.defaultInvoiceNotes;
+  if (settings.nextInvoiceNumber !== undefined) updateData.nextInvoiceNumber = settings.nextInvoiceNumber;
+  if (settings.bankAccount !== undefined) updateData.bankAccount = settings.bankAccount;
+  // Only include startNumber and fileNameBase if they are provided and not undefined
+  if (settings.startNumber !== undefined) updateData.startNumber = settings.startNumber;
+  if (settings.fileNameBase !== undefined) updateData.fileNameBase = settings.fileNameBase;
 
   const setClauses = Object.keys(updateData)
-    .map((key, i) => `"${toSnakeCase(key)}" = $${i + 1}`)
+    .map((key, i) => `"${toSnakeCase(key)}" = $${i + 2}`)
     .join(', ');
 
-  if (setClauses.length === 0 && Object.keys(settings).length > 0) {
-     const currentSettings = await getInvoiceSettings(userId);
-     if(!currentSettings) throw new Error("Failed to retrieve current invoice settings after no-op save.");
-     return currentSettings;
-  }
-   if (setClauses.length === 0) { // No data provided at all
-    const currentSettings = await getInvoiceSettings(userId);
-    if (!currentSettings) throw new Error("User invoice settings not found and could not be created.");
+  if (setClauses.length === 0) {
+    const currentSettings = await getInvoiceSettings(shopId);
+    if (!currentSettings) throw new Error(`Invoice settings not found for shopId ${shopId} and could not be created.`);
     return currentSettings;
   }
 
-  const values = Object.values(updateData);
-  values.push(userId);
+  const values = [shopId, ...Object.values(updateData)];
   const query = `
-    UPDATE invoice_settings SET
+    INSERT INTO invoice_settings (shop_id, ${Object.keys(updateData).map(key => toSnakeCase(key)).join(', ')})
+    VALUES ($1, ${Object.keys(updateData).map((_, i) => `$${i + 2}`).join(', ')})
+    ON CONFLICT (shop_id) DO UPDATE SET
       ${setClauses},
       updated_at = NOW()
-    WHERE user_id = $${values.length}
-    RETURNING user_id AS "userId", company_name AS "companyName", company_address AS "companyAddress", company_phone AS "companyPhone",
+    WHERE invoice_settings.shop_id = $1
+    RETURNING shop_id AS "shopId", company_name AS "companyName", company_address AS "companyAddress", company_phone AS "companyPhone",
            company_email AS "companyEmail", invoice_prefix AS "invoicePrefix", vat_number AS "vatNumber", default_invoice_notes AS "defaultInvoiceNotes",
            next_invoice_number AS "nextInvoiceNumber", bank_account AS "bankAccount", start_number AS "startNumber", file_name_base AS "fileNameBase",
            created_at AS "createdAt", updated_at AS "updatedAt";
@@ -365,42 +340,39 @@ export async function saveInvoiceSettings(userId: string, settings: Partial<Omit
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
-    console.error(`Error saving invoice settings for user ID ${userId}:`, error);
+    console.error(`Error saving invoice settings for shopId ${shopId}:`, error);
     throw error;
   }
 }
 
-export async function getGeneralSettings(userId: string): Promise<IGeneralSettings | null> {
+// --- General Settings Service ---
+
+export async function getGeneralSettings(shopId: string): Promise<IGeneralSettings | null> {
   const pool = getDBPool();
   const query = `
-    SELECT user_id AS "userId", firstname, surname, address, postcode, city, account_email AS "accountEmail", phone_number AS "phoneNumber",
+    SELECT shop_id AS "shopId", firstname, surname, address, postcode, city, account_email AS "accountEmail", phone_number AS "phoneNumber",
            company_name AS "companyName", company_address AS "companyAddress", company_postcode AS "companyPostcode", company_city AS "companyCity",
            customer_email AS "customerEmail", company_phone_number AS "companyPhoneNumber", chamber_of_commerce AS "chamberOfCommerce",
            vat_number AS "vatNumber", iban, optional_vat_number AS "optionalVatNumber", created_at AS "createdAt", updated_at AS "updatedAt"
-    FROM general_settings WHERE user_id = $1
+    FROM general_settings WHERE shop_id = $1
   `;
   try {
-    const result = await pool.query(query, [userId]);
-     if (result.rows.length > 0) {
-        return result.rows[0];
-    }
-    return null;
+    const result = await pool.query(query, [shopId]);
+    return result.rows.length > 0 ? result.rows[0] : null;
   } catch (error) {
-    console.error(`Error fetching general settings for user ID ${userId}:`, error);
+    console.error(`Error fetching general settings for shopId ${shopId}:`, error);
     throw error;
   }
 }
 
-export async function saveGeneralSettings(userId: string, settings: Partial<Omit<IGeneralSettings, 'userId' | 'createdAt' | 'updatedAt'>>): Promise<IGeneralSettings> {
+export async function saveGeneralSettings(shopId: string, settings: Partial<Omit<IGeneralSettings, 'shopId' | 'createdAt' | 'updatedAt'>>): Promise<IGeneralSettings> {
   const pool = getDBPool();
-  // Upsert logic: Insert if not exists, update if exists for the given userId.
   const fields = [
     'firstname', 'surname', 'address', 'postcode', 'city', 'account_email', 'phone_number',
     'company_name', 'company_address', 'company_postcode', 'company_city', 'customer_email',
     'company_phone_number', 'chamber_of_commerce', 'vat_number', 'iban', 'optional_vat_number'
   ];
-  // Map snake_case fields to camelCase keys for settings object
-  const camelMap: Record<string, keyof Omit<IGeneralSettings, 'userId' | 'createdAt' | 'updatedAt'>> = {
+  const camelMap: Record<string, keyof Omit<IGeneralSettings, 'shopId' | 'createdAt' | 'updatedAt'>> = {
     firstname: 'firstname',
     surname: 'surname',
     address: 'address',
@@ -422,23 +394,112 @@ export async function saveGeneralSettings(userId: string, settings: Partial<Omit
   const values = fields.map(f => settings[camelMap[f]] ?? null);
   const query = `
     INSERT INTO general_settings (
-      user_id, ${fields.join(', ')}
+      shop_id, ${fields.join(', ')}
     ) VALUES (
       $1, ${fields.map((_, i) => `$${i + 2}`).join(', ')}
     )
-    ON CONFLICT (user_id) DO UPDATE SET
+    ON CONFLICT (shop_id) DO UPDATE SET
       ${fields.map((f, i) => `${f} = EXCLUDED.${f}`).join(', ')},
       updated_at = NOW()
-    RETURNING user_id AS "userId", firstname, surname, address, postcode, city, account_email AS "accountEmail", phone_number AS "phoneNumber",
+    RETURNING shop_id AS "shopId", firstname, surname, address, postcode, city, account_email AS "accountEmail", phone_number AS "phoneNumber",
            company_name AS "companyName", company_address AS "companyAddress", company_postcode AS "companyPostcode", company_city AS "companyCity",
            customer_email AS "customerEmail", company_phone_number AS "companyPhoneNumber", chamber_of_commerce AS "chamberOfCommerce",
            vat_number AS "vatNumber", iban, optional_vat_number AS "optionalVatNumber", created_at AS "createdAt", updated_at AS "updatedAt";
   `;
   try {
-    const result = await pool.query(query, [userId, ...values]);
+    const result = await pool.query(query, [shopId, ...values]);
     return result.rows[0];
   } catch (error) {
-    console.error(`Error saving general settings for user ID ${userId}:`, error);
+    console.error(`Error saving general settings for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+// --- Shop Service ---
+
+export async function createShop(shopData: Omit<IShop, 'id' | 'createdAt' | 'updatedAt'>): Promise<IShop> {
+  const pool = getDBPool();
+  const { userId, shopId, name, description } = shopData;
+
+  const query = `
+    INSERT INTO shops (user_id, shop_id, name, description)
+    VALUES ($1, $2, $3, $4)
+    RETURNING id, user_id AS "userId", shop_id AS "shopId", name, description, created_at AS "createdAt", updated_at AS "updatedAt";
+  `;
+  try {
+    const result = await pool.query(query, [userId, shopId, name, description]);
+    return result.rows[0];
+  } catch (error) {
+    console.error(`Error creating shop for userId ${userId}, shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+export async function getShopsByUserId(userId: string): Promise<IShop[]> {
+  const pool = getDBPool();
+  const query = `
+    SELECT id, user_id AS "userId", shop_id AS "shopId", name, description, created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM shops WHERE user_id = $1
+    ORDER BY created_at DESC;
+  `;
+  try {
+    const result = await pool.query(query, [userId]);
+    return result.rows;
+  } catch (error) {
+    console.error(`Error fetching shops for userId ${userId}:`, error);
+    throw error;
+  }
+}
+
+export async function getShopByShopId(userId: string, shopId: string): Promise<IShop | null> {
+  const pool = getDBPool();
+  const query = `
+    SELECT id, user_id AS "userId", shop_id AS "shopId", name, description, created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM shops WHERE user_id = $1 AND shop_id = $2
+  `;
+  try {
+    const result = await pool.query(query, [userId, shopId]);
+    return result.rows.length > 0 ? result.rows[0] : null;
+  } catch (error) {
+    console.error(`Error fetching shop with shopId ${shopId} for userId ${userId}:`, error);
+    throw error;
+  }
+}
+
+export async function updateShop(userId: string, shopId: string, shopData: Partial<Omit<IShop, 'id' | 'userId' | 'shopId' | 'createdAt' | 'updatedAt'>>): Promise<IShop | null> {
+  const pool = getDBPool();
+  const { name, description } = shopData;
+  
+  const query = `
+    UPDATE shops 
+    SET name = COALESCE($3, name), 
+        description = COALESCE($4, description), 
+        updated_at = NOW()
+    WHERE user_id = $1 AND shop_id = $2
+    RETURNING id, user_id AS "userId", shop_id AS "shopId", name, description, created_at AS "createdAt", updated_at AS "updatedAt"
+  `;
+  
+  try {
+    const result = await pool.query(query, [userId, shopId, name, description]);
+    return result.rows.length > 0 ? result.rows[0] : null;
+  } catch (error) {
+    console.error(`Error updating shop with shopId ${shopId} for userId ${userId}:`, error);
+    throw error;
+  }
+}
+
+export async function deleteShop(userId: string, shopId: string): Promise<boolean> {
+  const pool = getDBPool();
+  const query = `
+    DELETE FROM shops 
+    WHERE user_id = $1 AND shop_id = $2
+  `;
+  
+  try {
+    const result = await pool.query(query, [userId, shopId]);
+    return (result.rowCount || 0) > 0;
+  } catch (error) {
+    console.error(`Error deleting shop with shopId ${shopId} for userId ${userId}:`, error);
     throw error;
   }
 }

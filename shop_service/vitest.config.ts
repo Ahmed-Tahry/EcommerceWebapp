@@ -14,5 +14,10 @@ export default defineConfig({
       reportsDirectory: './coverage',
     },
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    // Add type checking to tests
+    typecheck: {
+      enabled: true,
+      include: ['src/**/*.ts'],
+    },
   },
 });

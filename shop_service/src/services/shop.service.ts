@@ -1,14 +1,43 @@
+
 import { getDBPool } from '../utils/db';
-import { IOffer, IOrder, IOrderItem } from '../models/shop.model';
+import { IOffer, IOrder, IOrderItem, IProduct } from '../models/shop.model';
 import { IProductVatRate } from '../models/shop.model';
+import BolService, {
+  BolProductContent,
+  BolCreateProductContentPayload,
+  BolCreateProductAttribute,
+  BolProductAttribute,
+  ProcessStatus,
+  BolCatalogProductResponse,
+  BolProductAssetsResponse,
+  BolAssetVariant,
+  BolOrder,
+  BolOrderItem
+} from './bol.service';
+import { parse, CsvError } from 'csv-parse';
+import type { Options as CsvParseOptions } from 'csv-parse';
+import axios from 'axios';
+import type { AxiosError } from 'axios';
+
+interface ParseContext {
+  column: string | number | undefined;
+}
 
 // Placeholder for ShopService (Phase 1)
 export async function getShopDetailsFromSource(shopId: string): Promise<object | null> {
-  console.log(`Fetching details for shop ID (Phase 1): ${shopId}`);
-  if (shopId === '123') {
-    return { id: shopId, name: 'Awesome Shop Phase 1', owner: 'Admin Phase 1' };
+  console.log(`Fetching details for shopId (Phase 1): ${shopId}`);
+  if (!shopId) {
+    throw new Error('shopId is required for fetching shop details');
   }
-  return null;
+  const pool = getDBPool();
+  const query = 'SELECT id, name, description FROM shops WHERE id = $1;';
+  try {
+    const result = await pool.query(query, [shopId]);
+    return result.rows.length > 0 ? result.rows[0] : null;
+  } catch (error) {
+    console.error(`Error fetching shop details for shopId ${shopId}:`, error);
+    return { id: shopId, name: 'Awesome Shop Phase 1', owner: 'Admin Phase 1' }; // Fallback as in original
+  }
 }
 
 // --- Service functions for Offers CRUD ---
@@ -16,58 +45,362 @@ export async function getShopDetailsFromSource(shopId: string): Promise<object |
 export async function createOffer(offerData: IOffer): Promise<IOffer> {
   const pool = getDBPool();
   const {
-    offerId, ean, conditionName = null, conditionCategory = null, conditionComment = null,
+    offerId, ean, shopId, conditionName = null, conditionCategory = null, conditionComment = null,
     bundlePricesPrice = null, fulfilmentDeliveryCode = null, stockAmount = null,
     onHoldByRetailer = false, fulfilmentType = null, mutationDateTime = new Date(),
     referenceCode = null, correctedStock = null,
   } = offerData;
 
+  if (!shopId) throw new Error('shopId is required for creating an offer');
+
   const query = `
     INSERT INTO offers (
-      "offerId", ean, "conditionName", "conditionCategory", "conditionComment",
+      "offerId", ean, shop_id, "conditionName", "conditionCategory", "conditionComment",
       "bundlePricesPrice", "fulfilmentDeliveryCode", "stockAmount", "onHoldByRetailer",
       "fulfilmentType", "mutationDateTime", "referenceCode", "correctedStock"
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-    RETURNING *;
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    RETURNING *, shop_id AS "shopId";
   `;
   const values = [
-    offerId, ean, conditionName, conditionCategory, conditionComment,
+    offerId, ean, shopId, conditionName, conditionCategory, conditionComment,
     bundlePricesPrice, fulfilmentDeliveryCode, stockAmount, onHoldByRetailer,
     fulfilmentType, mutationDateTime, referenceCode, correctedStock
   ];
 
   try {
     const result = await pool.query(query, values);
-    return result.rows[0];
+    return { ...result.rows[0], shopId: result.rows[0].shop_id };
   } catch (error) {
     console.error('Error creating offer:', error);
     throw error;
   }
 }
 
-// --- Product Model CRUD ---
-// Assuming IProduct is defined in ../models/shop.model.ts
-import { IProduct } from '../models/shop.model';
-// Import ProcessStatus correctly, and other types from bol.service
-import BolService, {
-  BolProductContent, // This might become less relevant if /content/products/{ean} is not used by new sync
-  BolCreateProductContentPayload,
-  BolCreateProductAttribute,
-  BolProductAttribute, // Existing, for /content/products/{ean}
-  ProcessStatus,
-  BolCatalogProductResponse, // New
-  BolProductAssetsResponse,   // New
-  BolAssetVariant             // New
-} from './bol.service';
+export async function getOfferById(offerId: string, shopId: string): Promise<IOffer | null> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for fetching an offer');
+  const query = 'SELECT *, shop_id AS "shopId" FROM offers WHERE "offerId" = $1 AND shop_id = $2;';
+  try {
+    const result = await pool.query(query, [offerId, shopId]);
+    return result.rows.length > 0 ? { ...result.rows[0], shopId: result.rows[0].shop_id } : null;
+  } catch (error) {
+    console.error(`Error fetching offer by ID ${offerId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
 
+export async function getAllOffers(shopId: string): Promise<IOffer[]> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for fetching offers');
+  const query = 'SELECT *, shop_id AS "shopId" FROM offers WHERE shop_id = $1 ORDER BY "offerId";';
+  try {
+    const result = await pool.query(query, [shopId]);
+    return result.rows.map(row => ({ ...row, shopId: row.shop_id }));
+  } catch (error) {
+    console.error('Error fetching all offers:', error);
+    throw error;
+  }
+}
+
+export async function updateOffer(offerId: string, shopId: string, updateData: Partial<IOffer>): Promise<IOffer | null> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for updating an offer');
+  const setClauses: string[] = [];
+  const values: any[] = [];
+  let valueCount = 1;
+
+  for (const [key, value] of Object.entries(updateData)) {
+    if (value !== undefined && key !== 'offerId' && key !== 'shopId') {
+      setClauses.push(`"${key}" = $${valueCount++}`);
+      values.push(value);
+    }
+  }
+
+  if (setClauses.length === 0) return getOfferById(offerId, shopId);
+  values.push(offerId, shopId);
+
+  const query = `
+    UPDATE offers SET ${setClauses.join(', ')}
+    WHERE "offerId" = $${valueCount++} AND shop_id = $${valueCount}
+    RETURNING *, shop_id AS "shopId";
+  `;
+  try {
+    const result = await pool.query(query, values);
+    return result.rows.length > 0 ? { ...result.rows[0], shopId: result.rows[0].shop_id } : null;
+  } catch (error) {
+    console.error(`Error updating offer ID ${offerId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+export async function deleteOffer(offerId: string, shopId: string): Promise<boolean> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for deleting an offer');
+  const query = 'DELETE FROM offers WHERE "offerId" = $1 AND shop_id = $2;';
+  try {
+    const result = await pool.query(query, [offerId, shopId]);
+    return result.rowCount !== null && result.rowCount > 0;
+  } catch (error) {
+    console.error(`Error deleting offer ID ${offerId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+// --- Service functions for Orders CRUD ---
+
+export async function createOrder(orderData: IOrder): Promise<IOrder> {
+  const pool = getDBPool();
+  const { orderId, orderPlacedDateTime = new Date(), orderItems, shopId } = orderData;
+  if (!shopId) throw new Error('shopId is required for creating an order');
+  const orderItemsJson = typeof orderItems === 'string' ? orderItems : JSON.stringify(orderItems);
+
+  const query = `
+    INSERT INTO orders ("orderId", "orderPlacedDateTime", "orderItems", shop_id)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *, shop_id AS "shopId";
+  `;
+  const values = [orderId, orderPlacedDateTime, orderItemsJson, shopId];
+
+  try {
+    const result = await pool.query(query, values);
+    const dbOrder = result.rows[0];
+    if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
+      try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); } catch (e) {
+        console.error('Failed to parse orderItems JSON for orderId:', dbOrder.orderId, e);
+      }
+    }
+    return { ...dbOrder, shopId: dbOrder.shop_id };
+  } catch (error) {
+    console.error('Error creating order:', error);
+    throw error;
+  }
+}
+
+export async function getOrderById(orderId: string, shopId: string): Promise<IOrder | null> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for fetching an order');
+  const query = 'SELECT *, shop_id AS "shopId" FROM orders WHERE "orderId" = $1 AND shop_id = $2;';
+  try {
+    const result = await pool.query(query, [orderId, shopId]);
+    if (result.rows.length > 0) {
+      const dbOrder = result.rows[0];
+      if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
+        try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); } catch (e) {
+          console.error('Failed to parse orderItems JSON for orderId:', dbOrder.orderId, e);
+        }
+      }
+      return { ...dbOrder, shopId: dbOrder.shop_id };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching order by ID ${orderId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+export async function getAllOrders(shopId: string): Promise<IOrder[]> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for fetching orders');
+  const query = 'SELECT *, shop_id AS "shopId" FROM orders WHERE shop_id = $1 ORDER BY "orderPlacedDateTime" DESC;';
+  try {
+    const result = await pool.query(query, [shopId]);
+    return result.rows.map(dbOrder => {
+      if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
+        try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); } catch (e) {
+          console.error('Failed to parse orderItems JSON for orderId:', dbOrder.orderId, e);
+        }
+      }
+      return { ...dbOrder, shopId: dbOrder.shop_id };
+    });
+  } catch (error) {
+    console.error('Error fetching all orders:', error);
+    throw error;
+  }
+}
+
+export async function updateOrder(orderId: string, shopId: string, updateData: Partial<IOrder>): Promise<IOrder | null> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for updating an order');
+  const setClauses: string[] = [];
+  const values: any[] = [];
+  let valueCount = 1;
+
+  if (updateData.orderItems !== undefined) {
+    const orderItemsValue = typeof updateData.orderItems === 'string'
+      ? updateData.orderItems : JSON.stringify(updateData.orderItems);
+    setClauses.push(`"orderItems" = $${valueCount++}`);
+    values.push(orderItemsValue);
+    delete updateData.orderItems;
+  }
+
+  for (const [key, value] of Object.entries(updateData)) {
+    if (value !== undefined && key !== 'orderId' && key !== 'shopId') {
+      setClauses.push(`"${key}" = $${valueCount++}`);
+      values.push(value);
+    }
+  }
+
+  if (setClauses.length === 0) return getOrderById(orderId, shopId);
+  values.push(orderId, shopId);
+
+  const query = `
+    UPDATE orders SET ${setClauses.join(', ')}
+    WHERE "orderId" = $${valueCount++} AND shop_id = $${valueCount}
+    RETURNING *, shop_id AS "shopId";
+  `;
+  try {
+    const result = await pool.query(query, values);
+    if (result.rows.length > 0) {
+      const dbOrder = result.rows[0];
+      if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
+        try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); } catch (e) {
+          console.error('Failed to parse orderItems JSON for orderId:', dbOrder.orderId, e);
+        }
+      }
+      return { ...dbOrder, shopId: dbOrder.shop_id };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error updating order ID ${orderId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+export async function deleteOrder(orderId: string, shopId: string): Promise<boolean> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for deleting an order');
+  const query = 'DELETE FROM orders WHERE "orderId" = $1 AND shop_id = $2;';
+  try {
+    const result = await pool.query(query, [orderId, shopId]);
+    return result.rowCount !== null && result.rowCount > 0;
+  } catch (error) {
+    console.error(`Error deleting order ID ${orderId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+// --- Service functions for OrderItems CRUD ---
+
+export async function createOrderItem(orderItemData: IOrderItem): Promise<IOrderItem> {
+  const pool = getDBPool();
+  const {
+    orderItemId, orderId, ean, shopId, fulfilmentMethod = null, fulfilmentStatus = null,
+    quantity = 0, quantityShipped = 0, quantityCancelled = 0,
+    cancellationRequest = false, latestChangedDateTime = new Date(),
+  } = orderItemData;
+
+  if (!shopId) throw new Error('shopId is required for creating an order item');
+
+  const orderCheckQuery = 'SELECT "orderId" FROM orders WHERE "orderId" = $1 AND shop_id = $2';
+  const orderCheckResult = await pool.query(orderCheckQuery, [orderId, shopId]);
+  if (orderCheckResult.rowCount === 0) {
+    throw new Error(`Order with ID ${orderId} not found for shopId ${shopId}.`);
+  }
+
+  const query = `
+    INSERT INTO order_items (
+      "orderItemId", "orderId", ean, shop_id, "fulfilmentMethod", "fulfilmentStatus",
+      quantity, "quantityShipped", "quantityCancelled", "cancellationRequest", "latestChangedDateTime"
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    RETURNING *, shop_id AS "shopId";
+  `;
+  const values = [
+    orderItemId, orderId, ean, shopId, fulfilmentMethod, fulfilmentStatus,
+    quantity, quantityShipped, quantityCancelled, cancellationRequest, latestChangedDateTime
+  ];
+
+  try {
+    const result = await pool.query(query, values);
+    return { ...result.rows[0], shopId: result.rows[0].shop_id };
+  } catch (error) {
+    console.error('Error creating order item:', error);
+    if (error instanceof Error && 'code' in error && (error as any).code === '23503') {
+      throw new Error(`Order with ID ${orderId} not found for shopId ${shopId} or another foreign key constraint failed.`);
+    }
+    throw error;
+  }
+}
+
+export async function getOrderItemById(orderItemId: string, shopId: string): Promise<IOrderItem | null> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for fetching an order item');
+  const query = 'SELECT *, shop_id AS "shopId" FROM order_items WHERE "orderItemId" = $1 AND shop_id = $2;';
+  try {
+    const result = await pool.query(query, [orderItemId, shopId]);
+    return result.rows.length > 0 ? { ...result.rows[0], shopId: result.rows[0].shop_id } : null;
+  } catch (error) {
+    console.error(`Error fetching order item by ID ${orderItemId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+export async function getOrderItemsByOrderId(orderId: string, shopId: string): Promise<IOrderItem[]> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for fetching order items');
+  const query = 'SELECT *, shop_id AS "shopId" FROM order_items WHERE "orderId" = $1 AND shop_id = $2 ORDER BY "orderItemId";';
+  try {
+    const result = await pool.query(query, [orderId, shopId]);
+    return result.rows.map(row => ({ ...row, shopId: row.shop_id }));
+  } catch (error) {
+    console.error(`Error fetching order items for order ID ${orderId} and shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+export async function updateOrderItem(orderItemId: string, shopId: string, updateData: Partial<IOrderItem>): Promise<IOrderItem | null> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for updating an order item');
+  const setClauses: string[] = [];
+  const values: any[] = [];
+  let valueCount = 1;
+
+  for (const [key, value] of Object.entries(updateData)) {
+    if (key === 'orderItemId' || key === 'orderId' || key === 'shopId') continue;
+    if (value !== undefined) {
+      setClauses.push(`"${key}" = $${valueCount++}`);
+      values.push(value);
+    }
+  }
+
+  if (setClauses.length === 0) return getOrderItemById(orderItemId, shopId);
+  values.push(orderItemId, shopId);
+
+  const query = `
+    UPDATE order_items SET ${setClauses.join(', ')}
+    WHERE "orderItemId" = $${valueCount++} AND shop_id = $${valueCount}
+    RETURNING *, shop_id AS "shopId";
+  `;
+  try {
+    const result = await pool.query(query, values);
+    return result.rows.length > 0 ? { ...result.rows[0], shopId: result.rows[0].shop_id } : null;
+  } catch (error) {
+    console.error(`Error updating order item ID ${orderItemId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+export async function deleteOrderItem(orderItemId: string, shopId: string): Promise<boolean> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for deleting an order item');
+  const query = 'DELETE FROM order_items WHERE "orderItemId" = $1 AND shop_id = $2;';
+  try {
+    const result = await pool.query(query, [orderItemId, shopId]);
+    return result.rowCount !== null && result.rowCount > 0;
+  } catch (error) {
+    console.error(`Error deleting order item ID ${orderItemId} for shopId ${shopId}:`, error);
+    throw error;
+  }
+}
+
+// --- Product Model CRUD ---
 
 export async function createProduct(productData: IProduct): Promise<IProduct> {
   const pool = getDBPool();
-  // Using ON CONFLICT to handle potential duplicate EANs by updating existing record (upsert)
+  if (!productData.shopId) throw new Error('shopId is required for creating a product');
   const query = `
-    INSERT INTO products (ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate, "userId")
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    ON CONFLICT (ean) DO UPDATE SET
+    INSERT INTO products (ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate, "userId", shop_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    ON CONFLICT (ean, shop_id) DO UPDATE SET
       title = EXCLUDED.title,
       description = EXCLUDED.description,
       brand = EXCLUDED.brand,
@@ -77,7 +410,7 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
       "lastSyncToBol" = EXCLUDED."lastSyncToBol",
       vat_rate = EXCLUDED.vat_rate,
       "userId" = EXCLUDED."userId"
-    RETURNING *;
+    RETURNING *, shop_id AS "shopId";
   `;
   const values = [
     productData.ean,
@@ -90,50 +423,55 @@ export async function createProduct(productData: IProduct): Promise<IProduct> {
     productData.lastSyncToBol,
     productData.vatRate,
     productData.userId || null,
+    productData.shopId
   ];
   try {
     const result = await pool.query(query, values);
-    return result.rows[0];
+    const product = result.rows[0];
+    if (typeof product.attributes === 'string') {
+      product.attributes = JSON.parse(product.attributes);
+    }
+    return { ...product, shopId: product.shop_id };
   } catch (error) {
-    console.error(`Error creating/updating product with EAN ${productData.ean}:`, error);
+    console.error(`Error creating/updating product with EAN ${productData.ean} for shopId ${productData.shopId}:`, error);
     throw error;
   }
 }
 
-export async function getProductByEan(ean: string): Promise<IProduct | null> {
+export async function getProductByEan(ean: string, shopId: string): Promise<IProduct | null> {
   const pool = getDBPool();
-  const query = 'SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", "userId" FROM products WHERE ean = $1;';
+  if (!shopId) throw new Error('shopId is required for fetching a product');
+  const query = 'SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", country, "userId", shop_id AS "shopId" FROM products WHERE ean = $1 AND shop_id = $2;';
   try {
-    const result = await pool.query(query, [ean]);
+    const result = await pool.query(query, [ean, shopId]);
     if (result.rows.length > 0) {
-      const product = result.rows[0] as IProduct; // Cast to IProduct
-      // Ensure attributes are parsed if stored as JSON string
+      const product = result.rows[0] as IProduct;
       if (typeof product.attributes === 'string') {
         product.attributes = JSON.parse(product.attributes);
       }
-      // The vatRate should be correctly mapped due to 'AS "vatRate"'
-      return product;
+      return { ...product, shopId: product.shopId };
     }
     return null;
   } catch (error) {
-    console.error(`Error fetching product by EAN ${ean}:`, error);
+    console.error(`Error fetching product by EAN ${ean} for shopId ${shopId}:`, error);
     throw error;
   }
 }
 
-export async function updateProduct(ean: string, updateData: Partial<IProduct>): Promise<IProduct | null> {
+export async function updateProduct(ean: string, shopId: string, updateData: Partial<IProduct>): Promise<IProduct | null> {
   const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for updating a product');
   const setClauses: string[] = [];
   const values: any[] = [];
   let valueCount = 1;
 
   for (let [key, value] of Object.entries(updateData)) {
-    if (value !== undefined && key !== 'ean') {
+    if (value !== undefined && key !== 'ean' && key !== 'shopId') {
       let dbKey = key;
       if (key === 'attributes' && typeof value === 'object' && value !== null) {
-        value = JSON.stringify(value); // Stringify attributes if it's an object
+        value = JSON.stringify(value);
       }
-      if (key === 'vatRate') { // Map model key to db column key
+      if (key === 'vatRate') {
         dbKey = 'vat_rate';
       }
       if (key === 'userId') {
@@ -144,10 +482,10 @@ export async function updateProduct(ean: string, updateData: Partial<IProduct>):
     }
   }
 
-  if (setClauses.length === 0) return getProductByEan(ean);
-  values.push(ean);
+  if (setClauses.length === 0) return getProductByEan(ean, shopId);
+  values.push(ean, shopId);
 
-  const query = `UPDATE products SET ${setClauses.join(', ')} WHERE ean = $${valueCount} RETURNING *;`;
+  const query = `UPDATE products SET ${setClauses.join(', ')} WHERE ean = $${valueCount++} AND shop_id = $${valueCount} RETURNING *, shop_id AS "shopId";`;
   try {
     const result = await pool.query(query, values);
     if (result.rows.length > 0) {
@@ -155,15 +493,56 @@ export async function updateProduct(ean: string, updateData: Partial<IProduct>):
       if (typeof product.attributes === 'string') {
         product.attributes = JSON.parse(product.attributes);
       }
-      return product;
+      return { ...product, shopId: product.shop_id };
     }
     return null;
   } catch (error) {
-    console.error(`Error updating product EAN ${ean}:`, error);
+    console.error(`Error updating product EAN ${ean} for shopId ${shopId}:`, error);
     throw error;
   }
 }
 
+export async function getAllProducts(userId: string, shopId: string, page: number = 1, limit: number = 10): Promise<{ products: IProduct[], total: number, page: number, limit: number }> {
+  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for fetching products');
+  const offset = (page - 1) * limit;
+
+  try {
+    const totalResult = await pool.query('SELECT COUNT(*) FROM products WHERE "userId" = $1 AND shop_id = $2;', [userId, shopId]);
+    const total = parseInt(totalResult.rows[0].count, 10);
+
+    const productsQuery = `
+      SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", country, "userId", shop_id AS "shopId"
+      FROM products
+      WHERE "userId" = $1 AND shop_id = $2
+      ORDER BY title ASC NULLS LAST, ean ASC
+      LIMIT $3 OFFSET $4;
+    `;
+    const productsResult = await pool.query(productsQuery, [userId, shopId, limit, offset]);
+
+    const products: IProduct[] = productsResult.rows.map(p => {
+      if (p.attributes && typeof p.attributes === 'string') {
+        try {
+          p.attributes = JSON.parse(p.attributes);
+        } catch (e) {
+          console.error(`Error parsing attributes for EAN ${p.ean}:`, e);
+          p.attributes = null;
+        }
+      }
+      return { ...p, shopId: p.shop_id } as IProduct;
+    });
+
+    return {
+      products,
+      total,
+      page,
+      limit,
+    };
+  } catch (error) {
+    console.error('Error fetching all products with pagination:', error);
+    throw error;
+  }
+}
 
 // --- Bol.com Product Content Synchronization ---
 
@@ -172,10 +551,10 @@ function mapBolProductContentToLocal(bolContent: BolProductContent): Partial<IPr
   const otherAttributes: Record<string, any> = {};
 
   bolContent.attributes.forEach(attr => {
-    const value = attr.values[0]?.value; // Take first value for simplicity
+    const value = attr.values[0]?.value;
     if (value === undefined) return;
 
-    switch (attr.id.toLowerCase()) { // Normalize common Bol attribute IDs
+    switch (attr.id.toLowerCase()) {
       case 'title':
       case 'titel':
         localProduct.title = String(value);
@@ -206,9 +585,9 @@ function mapBolProductContentToLocal(bolContent: BolProductContent): Partial<IPr
   return localProduct;
 }
 
-// This is the corrected version, the one above (without userId) will be removed.
-export async function getBolProductContent(userId: string, ean: string, language: string = 'nl'): Promise<Partial<IProduct> | null> {
-  const credentials = await getBolCredentials(userId); // Await the promise
+export async function getBolProductContent(userId: string, shopId: string, ean: string, language: string = 'nl'): Promise<Partial<IProduct> | null> {
+  if (!shopId) throw new Error('shopId is required for fetching Bol product content');
+  const credentials = await getBolCredentials(userId, shopId);
   const bolService = new BolService(credentials.clientId, credentials.clientSecret);
   const bolContent = await bolService.fetchProductContent(ean, language);
   if (!bolContent) {
@@ -218,14 +597,13 @@ export async function getBolProductContent(userId: string, ean: string, language
   return mapBolProductContentToLocal(bolContent);
 }
 
-// Removed updateLocalProductFromBol as its functionality is covered by the new syncProductsFromOffersAndRetailerApi
-
-export async function pushLocalProductToBol(userId: string, ean: string, language: string = 'nl'): Promise<{ processId: string | null; message: string; error?: any }> {
-  const credentials = await getBolCredentials(userId); // Await the promise
+export async function pushLocalProductToBol(userId: string, shopId: string, ean: string, language: string = 'nl'): Promise<{ processId: string | null; message: string; error?: any }> {
+  if (!shopId) throw new Error('shopId is required for pushing product to Bol');
+  const credentials = await getBolCredentials(userId, shopId);
   const bolService = new BolService(credentials.clientId, credentials.clientSecret);
-  const localProduct = await getProductByEan(ean);
+  const localProduct = await getProductByEan(ean, shopId);
   if (!localProduct) {
-    return { processId: null, message: `Product with EAN ${ean} not found locally.`, error: 'Local product not found' };
+    return { processId: null, message: `Product with EAN ${ean} not found locally for shopId ${shopId}.`, error: 'Local product not found' };
   }
 
   const attributes: BolCreateProductAttribute[] = [];
@@ -236,7 +614,7 @@ export async function pushLocalProductToBol(userId: string, ean: string, languag
   if (localProduct.attributes) {
     for (const key in localProduct.attributes) {
       if (!['title', 'description', 'brand'].includes(key.toLowerCase())) {
-         attributes.push({ id: key, values: [{ value: localProduct.attributes[key] }] });
+        attributes.push({ id: key, values: [{ value: localProduct.attributes[key] }] });
       }
     }
   }
@@ -244,30 +622,31 @@ export async function pushLocalProductToBol(userId: string, ean: string, languag
 
   try {
     const processStatus = await bolService.upsertProductContent(payload);
-    await updateProduct(ean, { lastSyncToBol: new Date() });
+    await updateProduct(ean, shopId, { lastSyncToBol: new Date() });
     return { processId: processStatus.processStatusId, message: `Product content update initiated for EAN ${ean}. Poll process ID for status.` };
   } catch (error: unknown) {
-    console.error(`Error pushing product EAN ${ean} to Bol:`, error);
+    console.error(`Error pushing product EAN ${ean} to Bol for shopId ${shopId}:`, error);
     return { processId: null, message: `Failed to initiate product content update for EAN ${ean}.`, error: (error instanceof Error ? error.message : String(error)) };
   }
 }
 
-export async function pollBolProcessStatus(userId: string, processId: string, maxAttempts = 20, pollInterval = 5000): Promise<ProcessStatus> {
-    const credentials = await getBolCredentials(userId); // Await the promise
-    const bolService = new BolService(credentials.clientId, credentials.clientSecret);
-    let attempts = 0;
-    while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-        attempts++;
-        console.log(`Polling process status for ID ${processId}, attempt ${attempts}`);
-        const currentStatus = await bolService.getProcessStatus(processId);
-        if (currentStatus.status === 'SUCCESS' || currentStatus.status === 'FAILURE' || currentStatus.status === 'TIMEOUT') {
-            console.log(`Process ID ${processId} finished with status: ${currentStatus.status}`);
-            return currentStatus;
-        }
-        console.log(`Process ID ${processId} status: ${currentStatus.status}. Polling again...`);
+export async function pollBolProcessStatus(userId: string, shopId: string, processId: string, maxAttempts = 20, pollInterval = 5000): Promise<ProcessStatus> {
+  if (!shopId) throw new Error('shopId is required for polling Bol process status');
+  const credentials = await getBolCredentials(userId, shopId);
+  const bolService = new BolService(credentials.clientId, credentials.clientSecret);
+  let attempts = 0;
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+    attempts++;
+    console.log(`Polling process status for ID ${processId}, attempt ${attempts}`);
+    const currentStatus = await bolService.getProcessStatus(processId);
+    if (currentStatus.status === 'SUCCESS' || currentStatus.status === 'FAILURE' || currentStatus.status === 'TIMEOUT') {
+      console.log(`Process ID ${processId} finished with status: ${currentStatus.status}`);
+      return currentStatus;
     }
-    throw new Error(`Process ID ${processId} timed out after ${maxAttempts} polling attempts.`);
+    console.log(`Process ID ${processId} status: ${currentStatus.status}. Polling again...`);
+  }
+  throw new Error(`Process ID ${processId} timed out after ${maxAttempts} polling attempts.`);
 }
 
 // --- New Product Sync Logic ---
@@ -276,13 +655,10 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
   const productDetails: Partial<IProduct> = { ean };
   let catalogDataFound = false;
 
-  // Step 1: Fetch from /retailer/catalog-products/{ean}
   try {
     console.log(`_fetchRetailerProductDetails: Fetching from /content/catalog-products/:ean/${ean} for lang ${language}`);
     const catalogResponse = await bolService.apiClient.get<BolCatalogProductResponse>(`/content/catalog-products/${ean}`, {
-      headers: { 'Accept': 'application/vnd.retailer.v10+json',
-        'Accept-Language':'nl'
-       } // Explicitly set, though BolService default might be same
+      headers: { 'Accept': 'application/vnd.retailer.v10+json', 'Accept-Language': 'nl' }
     });
 
     if (catalogResponse.data && catalogResponse.data.attributes) {
@@ -299,7 +675,6 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
         productDetails.description = String(descAttr.values[0].value);
       }
 
-      // Extract Brand from parties array
       if (catalogResponse.data.parties) {
         const brandParty = catalogResponse.data.parties.find(party => party.role === 'BRAND');
         if (brandParty) {
@@ -307,11 +682,9 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
         }
       }
 
-      // Store all other attributes in the attributes field
       const otherAttributes: Record<string, any> = {};
       attributes.forEach(attr => {
         if (attr.id !== 'Title' && attr.id !== 'Description' && attr.values.length > 0) {
-          // Simplified: takes the first value. Could be expanded to handle multiple values or unitIds.
           otherAttributes[attr.id] = attr.values[0].value;
         }
       });
@@ -327,29 +700,21 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
     const axiosError = error as AxiosError<any>;
     if (axiosError.isAxiosError && axiosError.response && axiosError.response.status === 404) {
       console.warn(`_fetchRetailerProductDetails: Product EAN ${ean} not found at /retailer/catalog-products.`);
-      return null; // If catalog product doesn't exist, no point fetching assets.
+      return null;
     }
     console.error(`_fetchRetailerProductDetails: Error fetching catalog details for EAN ${ean}:`, axiosError.message);
-    // Log more details if available
     if (axiosError.response) {
-        console.error('Catalog API Error Response data:', axiosError.response.data);
-        console.error('Catalog API Error Response status:', axiosError.response.status);
+      console.error('Catalog API Error Response data:', axiosError.response.data);
+      console.error('Catalog API Error Response status:', axiosError.response.status);
     }
     throw new Error(`Failed to fetch catalog details for EAN ${ean}: ${axiosError.message}`);
   }
 
-  // If no title was found from catalog-products, we might not proceed or have a product to update meaningfully.
-  // However, the requirement is to get name and image. If name isn't there, image might also be irrelevant.
-  // For now, proceed to fetch image if catalog data was found, even if title is missing (it will be null).
-  if (!catalogDataFound) { // Or more strictly: if (!productDetails.title)
+  if (!catalogDataFound) {
     console.warn(`_fetchRetailerProductDetails: No catalog data found for EAN ${ean}, skipping asset fetch.`);
-    // If we return null, the product won't be created/updated with just an EAN.
-    // If we return productDetails, it might be an EAN-only object if nothing was found.
-    // Let's return null if no catalog data at all, otherwise proceed.
     return Object.keys(productDetails).length > 1 ? productDetails : null;
   }
 
-  // Step 2: Fetch from /retailer/products/{ean}/assets?usage=PRIMARY
   try {
     console.log(`_fetchRetailerProductDetails: Fetching assets for EAN ${ean}`);
     const assetsResponse = await bolService.apiClient.get<BolProductAssetsResponse>(`/products/${ean}/assets`, {
@@ -358,7 +723,7 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
     });
 
     if (assetsResponse.data && assetsResponse.data.assets && assetsResponse.data.assets.length > 0) {
-      const primaryAsset = assetsResponse.data.assets[0]; // Assuming the first one is what we need
+      const primaryAsset = assetsResponse.data.assets[0];
       if (primaryAsset.variants && primaryAsset.variants.length > 0) {
         let imageUrl: string | undefined;
         const mediumVariant = primaryAsset.variants.find(v => v.size === 'medium');
@@ -369,7 +734,7 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
         } else if (largeVariant) {
           imageUrl = largeVariant.url;
         } else {
-          imageUrl = primaryAsset.variants[0].url; // Fallback to the first variant
+          imageUrl = primaryAsset.variants[0].url;
         }
         productDetails.mainImageUrl = imageUrl;
         console.log(`_fetchRetailerProductDetails: Successfully fetched image URL for EAN ${ean}: ${imageUrl}`);
@@ -381,112 +746,57 @@ async function _fetchRetailerProductDetails(ean: string, bolService: BolService,
     }
   } catch (error: any) {
     const axiosError = error as AxiosError<any>;
-     if (axiosError.isAxiosError && axiosError.response && axiosError.response.status === 404) {
+    if (axiosError.isAxiosError && axiosError.response && axiosError.response.status === 404) {
       console.warn(`_fetchRetailerProductDetails: Assets not found for EAN ${ean}.`);
-      // Don't nullify productDetails if catalog info was already fetched.
     } else {
       console.error(`_fetchRetailerProductDetails: Error fetching assets for EAN ${ean}:`, axiosError.message);
       if (axiosError.response) {
         console.error('Assets API Error Response data:', axiosError.response.data);
         console.error('Assets API Error Response status:', axiosError.response.status);
       }
-      // Not throwing here to allow product creation even if image fetch fails, but log it.
-      // The error will be part of the main sync summary if this throw is re-enabled:
-      // throw new Error(`Failed to fetch assets for EAN ${ean}: ${axiosError.message}`);
     }
   }
 
-  // Return productDetails if it has more than just EAN, otherwise null
   return Object.keys(productDetails).length > 1 ? productDetails : null;
 }
 
-export async function getAllProducts(userId: string, page: number = 1, limit: number = 10): Promise<{ products: IProduct[], total: number, page: number, limit: number }> {
-  const pool = getDBPool();
-  const offset = (page - 1) * limit;
-
-  try {
-    // Query for the total count of products for this user
-    const totalResult = await pool.query('SELECT COUNT(*) FROM products WHERE "userId" = $1;', [userId]);
-    const total = parseInt(totalResult.rows[0].count, 10);
-
-    // Query for the paginated products for this user
-    const productsQuery = `
-      SELECT ean, title, description, brand, "mainImageUrl", attributes, "lastSyncFromBol", "lastSyncToBol", vat_rate AS "vatRate", country, "userId"
-      FROM products
-      WHERE "userId" = $1
-      ORDER BY title ASC NULLS LAST, ean ASC
-      LIMIT $2 OFFSET $3;
-    `;
-    const productsResult = await pool.query(productsQuery, [userId, limit, offset]);
-
-    const products: IProduct[] = productsResult.rows.map(p => {
-      if (p.attributes && typeof p.attributes === 'string') {
-        try {
-          p.attributes = JSON.parse(p.attributes);
-        } catch (e) {
-          console.error(`Error parsing attributes for EAN ${p.ean}:`, e);
-          p.attributes = null;
-        }
-      }
-      return p as IProduct;
-    });
-
-    return {
-      products,
-      total,
-      page,
-      limit,
-    };
-  } catch (error) {
-    console.error('Error fetching all products with pagination:', error);
-    throw error;
-  }
-}
-
-export async function syncProductsFromOffersAndRetailerApi(userId: string): Promise<{ processed: number; success: number; failed: number; errors: string[] }> {
+export async function syncProductsFromOffersAndRetailerApi(userId: string, shopId: string): Promise<{ processed: number; success: number; failed: number; errors: string[] }> {
+  if (!shopId) throw new Error('shopId is required for syncing products');
   let eansToProcess: string[] = [];
   const summary = { processed: 0, success: 0, failed: 0, errors: [] as string[] };
 
-  console.log(`Starting product sync for user ${userId}. Fetching EANs from existing offers in the database.`);
+  console.log(`Starting product sync for user ${userId} and shopId ${shopId}. Fetching EANs from existing offers.`);
   try {
-    // Step 1: Query the local 'offers' table to get all unique EANs.
-    // It's assumed that the 'offers' table is kept up-to-date by a separate process
-    // that calls exportAllOffersAsCsv or a similar mechanism.
-    const allLocalOffers = await getAllOffers(); // Fetches all offers from the DB
-
+    const allLocalOffers = await getAllOffers(shopId);
     if (allLocalOffers.length === 0) {
-      summary.errors.push("No offers found in the local database to process EANs from.");
-      console.log("Product sync cannot proceed as no offers are available locally.");
+      summary.errors.push(`No offers found for shopId ${shopId} to process EANs from.`);
+      console.log("Product sync cannot proceed as no offers are available.");
       return summary;
     }
 
     eansToProcess = [...new Set(allLocalOffers.map(offer => offer.ean).filter(Boolean))];
-
     if (eansToProcess.length === 0) {
-      summary.errors.push("No unique EANs found in the local offers database.");
-      console.log("Product sync cannot proceed as no EANs were extracted from local offers.");
+      summary.errors.push(`No unique EANs found for shopId ${shopId}.`);
+      console.log("Product sync cannot proceed as no EANs were extracted.");
       return summary;
     }
-    console.log(`Extracted ${eansToProcess.length} unique EANs from the local offers database for user ${userId}.`);
-
+    console.log(`Extracted ${eansToProcess.length} unique EANs for user ${userId} and shopId ${shopId}.`);
   } catch (error: any) {
-    console.error(`Error fetching EANs from the local offers database for user ${userId}:`, error);
-    summary.errors.push(`Failed to fetch EANs from local offers database: ${error.message}`);
-    return summary; // Abort if fetching EANs fails critically
+    console.error(`Error fetching EANs for user ${userId} and shopId ${shopId}:`, error);
+    summary.errors.push(`Failed to fetch EANs: ${error.message}`);
+    return summary;
   }
 
-  console.log(`Proceeding to process ${eansToProcess.length} EANs for user ${userId}.`);
+  console.log(`Proceeding to process ${eansToProcess.length} EANs for user ${userId} and shopId ${shopId}.`);
   summary.processed = eansToProcess.length;
 
-  // Instantiate BolService once for all EANs
   let bolServiceInstance: BolService;
   try {
-    const credentials = await getBolCredentials(userId);
+    const credentials = await getBolCredentials(userId, shopId);
     bolServiceInstance = new BolService(credentials.clientId, credentials.clientSecret);
   } catch (credError: any) {
-    console.error(`Failed to get Bol credentials for user ${userId}: ${credError.message}. Aborting sync.`);
-    summary.errors.push(`Failed to initialize Bol service for product sync: ${credError.message}`);
-    // Update summary to reflect that all planned EANs could not be processed due to this initial failure.
+    console.error(`Failed to get Bol credentials for user ${userId} and shopId ${shopId}: ${credError.message}.`);
+    summary.errors.push(`Failed to initialize Bol service: ${credError.message}`);
     summary.failed = eansToProcess.length;
     return summary;
   }
@@ -494,44 +804,26 @@ export async function syncProductsFromOffersAndRetailerApi(userId: string): Prom
   for (const ean of eansToProcess) {
     try {
       console.log(`Processing EAN: ${ean}`);
-      let productData: Partial<IProduct> = { ean };
+      let productData: Partial<IProduct> = { ean, shopId };
 
-      // Step 1: Fetch details from the retailer API
-      // Defaulting language to 'nl', can be made configurable if needed.
       const retailerDetails = await _fetchRetailerProductDetails(ean, bolServiceInstance, 'nl');
       if (retailerDetails) {
         productData = { ...productData, ...retailerDetails };
-        // Assuming data from this endpoint implies a sync from Bol, so set lastSyncFromBol
         productData.lastSyncFromBol = new Date();
         await new Promise(resolve => setTimeout(resolve, 500));
       } else {
         console.warn(`No details found from Bol.com retailer API for EAN ${ean}. Product will be created/updated with minimal info.`);
       }
 
-      // Step 2: (Placeholder for future) Potentially enrich with other data sources if needed.
-      // The current _fetchRetailerProductDetails already uses Bol.com. If another source
-      // or a different type of Bol.com content (e.g., from /content/products/ endpoint via getBolProductContent)
-      // was needed, it would be called here and merged.
-      // For now, the main source of product details is _fetchRetailerProductDetails.
-
-      // Ensure essential fields like title are not empty if possible.
-      // If retailerDetails was null and no other source provided a title, it might remain null.
-      // A default title could be set here if required:
-      // if (!productData.title) {
-      //   productData.title = `Product EAN: ${ean}`;
-      // }
-
-      // Set vatRate to null initially, to be updated manually via settings service
       productData.vatRate = null;
-
-      await createProduct({... productData,userId} as IProduct); // createProduct handles upsert
-      console.log(`Successfully created/updated product for EAN ${ean}.`);
+      productData.userId = userId;
+      await createProduct(productData as IProduct);
+      console.log(`Successfully created/updated product for EAN ${ean} and shopId ${shopId}.`);
       summary.success++;
     } catch (error: any) {
-      console.error(`Failed to process EAN ${ean}:`, error);
+      console.error(`Failed to process EAN ${ean} for shopId ${shopId}:`, error);
       summary.failed++;
       summary.errors.push(`EAN ${ean}: ${error.message}`);
-      // Decide if one error should stop the whole batch or continue. Currently continues.
     }
   }
 
@@ -539,17 +831,17 @@ export async function syncProductsFromOffersAndRetailerApi(userId: string): Prom
   return summary;
 }
 
-
 // --- Bol.com Order Synchronization ---
-import { BolOrder, BolOrderItem } from './bol.service';
 
 export async function synchronizeBolOrders(
   userId: string,
+  shopId: string,
   status: string = 'OPEN',
   fulfilmentMethod: 'FBR' | 'FBB' | null = null,
   latestChangedDate: string | null = null
 ): Promise<{ createdOrders: number; updatedOrders: number; createdItems: number; updatedItems: number; failedOrders: number; errors: string[] }> {
-  const credentials = await getBolCredentials(userId); // Await the promise
+  if (!shopId) throw new Error('shopId is required for synchronizing Bol orders');
+  const credentials = await getBolCredentials(userId, shopId);
   const bolService = new BolService(credentials.clientId, credentials.clientSecret);
   let currentPage = 1;
   let morePages = true;
@@ -562,7 +854,7 @@ export async function synchronizeBolOrders(
     errors: [] as string[],
   };
 
-  console.log(`Starting Bol.com order synchronization. Params: status=${status}, fulfilmentMethod=${fulfilmentMethod}, latestChangedDate=${latestChangedDate}`);
+  console.log(`Starting Bol.com order synchronization for shopId ${shopId}. Params: status=${status}, fulfilmentMethod=${fulfilmentMethod}, latestChangedDate=${latestChangedDate}`);
 
   while (morePages) {
     try {
@@ -579,44 +871,39 @@ export async function synchronizeBolOrders(
 
       for (const bolOrder of bolOrders) {
         try {
-          // Map BolOrder to IOrder
           const localOrderData: Partial<IOrder> = {
             orderId: bolOrder.orderId,
             orderPlacedDateTime: new Date(bolOrder.orderPlacedDateTime),
-            // orderItems will be handled separately after order creation/update
+            shopId,
           };
 
-          const existingOrder = await getOrderById(bolOrder.orderId);
+          const existingOrder = await getOrderById(bolOrder.orderId, shopId);
           let currentOrder: IOrder;
 
           if (existingOrder) {
-            currentOrder = await updateOrder(bolOrder.orderId, localOrderData) as IOrder;
+            currentOrder = await updateOrder(bolOrder.orderId, shopId, localOrderData) as IOrder;
             summary.updatedOrders++;
-            console.log(`Updated existing local order ID: ${bolOrder.orderId}`);
+            console.log(`Updated existing local order ID: ${bolOrder.orderId} for shopId ${shopId}`);
           } else {
-            // Ensure all required fields for IOrder are present if creating
-            // For now, createOrder expects orderItems (even if empty array or stringified)
-            // We will create order first, then its items.
-            // The createOrder service might need adjustment if it strictly requires items upfront
-            // or we ensure localOrderData has a valid (empty) orderItems field.
             const newOrderPayload: IOrder = {
-                orderId: bolOrder.orderId,
-                orderPlacedDateTime: new Date(bolOrder.orderPlacedDateTime),
-                orderItems: [] // Initialize with empty, items will be added/updated below
+              orderId: bolOrder.orderId,
+              orderPlacedDateTime: new Date(bolOrder.orderPlacedDateTime),
+              orderItems: [],
+              shopId,
             };
             currentOrder = await createOrder(newOrderPayload);
             summary.createdOrders++;
-            console.log(`Created new local order ID: ${bolOrder.orderId}`);
+            console.log(`Created new local order ID: ${bolOrder.orderId} for shopId ${shopId}`);
           }
 
-          // Process OrderItems
           if (bolOrder.orderItems && bolOrder.orderItems.length > 0) {
             const localOrderItems: IOrderItem[] = [];
             for (const bolItem of bolOrder.orderItems) {
               const localItemData: IOrderItem = {
                 orderItemId: bolItem.orderItemId,
-                orderId: bolOrder.orderId, // Link to parent order
+                orderId: bolOrder.orderId,
                 ean: bolItem.product.ean,
+                shopId,
                 fulfilmentMethod: bolItem.fulfilment?.method || undefined,
                 fulfilmentStatus: bolItem.fulfilment?.status || undefined,
                 quantity: bolItem.quantity,
@@ -624,43 +911,39 @@ export async function synchronizeBolOrders(
                 quantityCancelled: bolItem.quantityCancelled || 0,
                 cancellationRequest: bolItem.cancellationRequest || false,
                 latestChangedDateTime: bolItem.fulfilment?.latestChangedDateTime
-                                        ? new Date(bolItem.fulfilment.latestChangedDateTime)
-                                        : new Date(),
+                  ? new Date(bolItem.fulfilment.latestChangedDateTime)
+                  : new Date(),
               };
               localOrderItems.push(localItemData);
 
-              const existingItem = await getOrderItemById(bolItem.orderItemId);
+              const existingItem = await getOrderItemById(bolItem.orderItemId, shopId);
               if (existingItem) {
-                await updateOrderItem(bolItem.orderItemId, localItemData);
+                await updateOrderItem(bolItem.orderItemId, shopId, localItemData);
                 summary.updatedItems++;
-                 console.log(`Updated order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId}`);
+                console.log(`Updated order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId} and shopId ${shopId}`);
               } else {
                 await createOrderItem(localItemData);
                 summary.createdItems++;
-                console.log(`Created new order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId}`);
+                console.log(`Created new order item ID: ${bolItem.orderItemId} for order ${bolOrder.orderId} and shopId ${shopId}`);
               }
             }
-            // After processing all items for an order, if the order was newly created,
-            // we might need to update its orderItems field if it's stored denormalized as JSONB.
-            // The current createOrder/updateOrder already handles JSON stringification of orderItems.
-            // If we've built `localOrderItems`, we can update the order with this array.
-            if (currentOrder) { // currentOrder should be defined here
-                 await updateOrder(currentOrder.orderId, { orderItems: localOrderItems });
-                 console.log(`Updated order ${currentOrder.orderId} with its processed items.`);
+            if (currentOrder) {
+              await updateOrder(currentOrder.orderId, shopId, { orderItems: localOrderItems });
+              console.log(`Updated order ${currentOrder.orderId} with its processed items for shopId ${shopId}.`);
             }
           }
         } catch (orderProcessingError) {
-          console.error(`Error processing Bol order ID ${bolOrder.orderId}:`, orderProcessingError);
+          console.error(`Error processing Bol order ID ${bolOrder.orderId} for shopId ${shopId}:`, orderProcessingError);
           summary.failedOrders++;
           summary.errors.push(`Failed to process order ${bolOrder.orderId}: ${(orderProcessingError as Error).message}`);
         }
       }
       currentPage++;
     } catch (fetchError) {
-      console.error(`Error fetching orders from Bol.com (page ${currentPage}):`, fetchError);
-      summary.failedOrders++; // Consider how to count this; maybe a separate counter for fetch failures
+      console.error(`Error fetching orders from Bol.com (page ${currentPage}) for shopId ${shopId}:`, fetchError);
+      summary.failedOrders++;
       summary.errors.push(`Failed to fetch orders page ${currentPage}: ${(fetchError as Error).message}`);
-      morePages = false; // Stop pagination on fetch error
+      morePages = false;
     }
   }
 
@@ -669,83 +952,67 @@ export async function synchronizeBolOrders(
 }
 
 // --- Bol.com Integration for Offer Export ---
-import { parse, CsvError } from 'csv-parse';
-import type { Options as CsvParseOptions } from 'csv-parse';
-import axios from 'axios';
-import type { AxiosError } from 'axios';
 
-interface ParseContext {
-  column: string | number | undefined;
-}
-// Function to get Bol API credentials, now accepting userId
-async function getBolCredentials(userId: string): Promise<{ clientId: string; clientSecret: string }> {
-  if (!userId) {
-    console.error('User ID is required to fetch Bol credentials.');
-    throw new Error('User ID not provided to getBolCredentials.');
-  }
+async function getBolCredentials(userId: string, shopId: string): Promise<{ clientId: string; clientSecret: string }> {
+  if (!userId) throw new Error('userId is required to fetch Bol credentials');
+  if (!shopId) throw new Error('shopId is required to fetch Bol credentials');
   try {
-    // Using a direct URL to settings_service, assuming it's resolvable as 'settings_service' on port 3000
-    // This should be configurable, e.g., via process.env.SETTINGS_SERVICE_DIRECT_URL
     const settingsServiceDirectUrl = process.env.SETTINGS_SERVICE_DIRECT_URL || 'http://settings_service:3000';
-    const accountUrl = `${settingsServiceDirectUrl}/settings/account?userId=${encodeURIComponent(userId)}`;
+    const accountUrl = `${settingsServiceDirectUrl}/settings/account?userId=${encodeURIComponent(userId)}&shopId=${encodeURIComponent(shopId)}`;
 
-    console.log(`Fetching Bol API credentials for user ${userId} directly from settings service at ${accountUrl}...`);
+    console.log(`Fetching Bol API credentials for user ${userId} and shopId ${shopId} from settings service at ${accountUrl}...`);
 
-    // Note: If settings_service is called directly (not through Nginx), it won't have JWT validation
-    // by default unless settings_service itself implements it (which it currently does not for this path).
-    // The X-User-ID header mechanism is an Nginx addition.
-    // We are now relying on the modified settings_service to accept userId in query/body.
     const response = await axios.get(accountUrl);
 
     interface AccountDetailsResponse {
-        bolClientId: string | null;
-        bolClientSecret: string | null;
+      bolClientId: string | null;
+      bolClientSecret: string | null;
     }
     const data = response.data as AccountDetailsResponse;
 
     if (!data.bolClientId || !data.bolClientSecret) {
-      console.error(`Fetched Bol API credentials from settings_service for user ${userId} are incomplete or null.`);
-      throw new Error(`Bol API credentials from settings_service for user ${userId} are incomplete or missing.`);
+      console.error(`Fetched Bol API credentials for user ${userId} and shopId ${shopId} are incomplete or null.`);
+      throw new Error(`Bol API credentials for user ${userId} and shopId ${shopId} are incomplete or missing.`);
     }
-    console.log(`Successfully fetched Bol API credentials for user ${userId}.`);
+    console.log(`Successfully fetched Bol API credentials for user ${userId} and shopId ${shopId}.`);
     return { clientId: data.bolClientId, clientSecret: data.bolClientSecret };
-
   } catch (error: unknown) {
-    console.error(`Failed to fetch Bol API credentials from settings_service for user ${userId}:`, error);
+    console.error(`Failed to fetch Bol API credentials for user ${userId} and shopId ${shopId}:`, error);
     if (axios.isAxiosError(error)) {
-        const axiosError = error;
-        const status = axiosError.response?.status;
-        const responseData = axiosError.response?.data;
-        let message = 'No additional details';
-        if (typeof responseData === 'object' && responseData !== null && 'message' in responseData) {
-            message = (responseData as {message: string}).message;
-        } else if (typeof responseData === 'string') {
-            message = responseData;
-        }
-        console.error(`Axios error details from settings_service for user ${userId}:`, responseData);
-        throw new Error(`Failed to retrieve Bol API credentials for user ${userId}. Settings service responded with status ${status}: ${message}. Ensure settings_service is running at the direct URL and configured to accept userId in query/body.`);
+      const axiosError = error;
+      const status = axiosError.response?.status;
+      const responseData = axiosError.response?.data;
+      let message = 'No additional details';
+      if (typeof responseData === 'object' && responseData !== null && 'message' in responseData) {
+        message = (responseData as { message: string }).message;
+      } else if (typeof responseData === 'string') {
+        message = responseData;
+      }
+      console.error(`Axios error details from settings_service for user ${userId} and shopId ${shopId}:`, responseData);
+      throw new Error(`Failed to retrieve Bol API credentials for user ${userId} and shopId ${shopId}. Settings service responded with status ${status}: ${message}. Ensure settings_service is running at the direct URL and configured to accept userId and shopId in query/body.`);
     } else if (error instanceof Error) {
-        console.error('Non-Axios error:', error.message);
-        throw new Error(`Failed to retrieve Bol API credentials for user ${userId} from settings_service. Error: ${error.message}`);
+      console.error('Non-Axios error:', error.message);
+      throw new Error(`Failed to retrieve Bol API credentials for user ${userId} and shopId ${shopId} from settings_service. Error: ${error.message}`);
     }
-    throw new Error(`Failed to retrieve Bol API credentials for user ${userId} from settings_service due to an unknown error.`);
+    throw new Error(`Failed to retrieve Bol API credentials for user ${userId} and shopId ${shopId} from settings_service due to an unknown error.`);
   }
 }
 
-
-export async function exportAllOffersAsCsv(userId: string): Promise<any> {
+export async function exportAllOffersAsCsv(userId: string, shopId: string): Promise<any> {
+  if (!shopId) throw new Error('shopId is required for exporting offers as CSV');
   try {
-    const credentials = await getBolCredentials(userId);
+    const credentials = await getBolCredentials(userId, shopId);
     const bolService = new BolService(credentials.clientId, credentials.clientSecret);
 
     console.log('Attempting to export all offers as CSV via BolService...');
     const csvData = await bolService.exportOffers('CSV');
     console.log('Successfully received CSV data from BolService. Parsing and saving offers...');
 
-    const importResult = await _parseAndSaveOffersFromCsv(csvData);
+    const importResult = await _parseAndSaveOffersFromCsv(csvData, shopId);
     console.log(`CSV processing complete. Success: ${importResult.successCount}, Errors: ${importResult.errorCount}`);
 
     if (importResult.errorCount > 0) {
+      console.log(`Returning result with errors. Success: ${importResult.successCount}, Errors: ${importResult.errorCount}`);
       return {
         message: `Offer import completed with some errors. Saved: ${importResult.successCount}, Failed: ${importResult.errorCount}.`,
         details: importResult.errors,
@@ -754,27 +1021,25 @@ export async function exportAllOffersAsCsv(userId: string): Promise<any> {
       };
     }
 
+    console.log(`Returning successful result. Success: ${importResult.successCount}, Errors: ${importResult.errorCount}`);
     return {
-        message: `Successfully exported and saved ${importResult.successCount} offers from Bol.com.`,
-        successCount: importResult.successCount,
-        errorCount: importResult.errorCount
+      message: `Successfully exported and saved ${importResult.successCount} offers from Bol.com for shopId ${shopId}.`,
+      successCount: importResult.successCount,
+      errorCount: importResult.errorCount
     };
-
   } catch (error: unknown) {
     console.error('Error in exportAllOffersAsCsv (ShopService):', error);
-    if (axios.isAxiosError(error)) { // Use the static method
-        const axiosError = error;
-        console.error('Axios error during offer export:', axiosError.response?.data || axiosError.message);
-        throw new Error(`Failed during offer export process: ${axiosError.message}`);
+    if (axios.isAxiosError(error)) {
+      const axiosError = error;
+      console.error('Axios error during offer export:', axiosError.response?.data || axiosError.message);
+      throw new Error(`Failed during offer export process for shopId ${shopId}: ${axiosError.message}`);
     } else if (error instanceof Error) {
-        throw error;
+      throw error;
     }
     throw new Error(String(error));
   }
 }
 
-// Helper to normalize CSV header names to IOffer field names
-// Handles potential spaces and case insensitivity for common CSV header variations.
 function normalizeHeader(header: string): keyof IOffer | null {
   const normalized = header.toLowerCase().replace(/\s+/g, '');
   switch (normalized) {
@@ -793,25 +1058,19 @@ function normalizeHeader(header: string): keyof IOffer | null {
     case 'correctedstock': return 'correctedStock';
     default:
       console.warn(`Unrecognized CSV header: ${header}`);
-      return null; // Or throw an error if strict mapping is required
+      return null;
   }
 }
 
-
-interface ParseContext {
-  column: string | number | undefined;
-}
-
-async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCount: number; errorCount: number; errors: string[] }> {
+async function _parseAndSaveOffersFromCsv(csvData: string, shopId: string): Promise<{ successCount: number; errorCount: number; errors: string[] }> {
+  if (!shopId) throw new Error('shopId is required for parsing and saving offers');
   return new Promise((resolve, reject) => {
     parse(csvData, {
-      columns: true, // Use the first row as header names
+      columns: true,
       skip_empty_lines: true,
       trim: true,
       cast: (value: string, context: ParseContext) => {
-        // context.column will be the string header name from the CSV
         const columnHeader = context.column as string;
-
         if (columnHeader === 'bundlePricesPrice' || columnHeader === 'stockAmount' || columnHeader === 'correctedStock') {
           return value === '' || value === null || value === undefined ? null : Number(value);
         }
@@ -824,16 +1083,15 @@ async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCou
         if (columnHeader === 'mutationDateTime') {
           return value === '' || value === null || value === undefined ? null : new Date(value);
         }
-        // Handle EAN specifically if it comes in scientific notation
         if (columnHeader === 'ean' && typeof value === 'string' && value.toUpperCase().includes('E+')) {
-            const num = Number(value);
-            if (!isNaN(num)) {
-                return String(BigInt(num)); // Convert to BigInt then to string to preserve all digits
-            }
+          const num = Number(value);
+          if (!isNaN(num)) {
+            return String(BigInt(num));
+          }
         }
         return value;
       },
-    }, (err: CsvError | undefined, records: Record<string, any>[] | undefined) => { // records are now Record<string, any>[]
+    }, (err: CsvError | undefined, records: Record<string, any>[] | undefined) => {
       if (err) {
         console.error('Error parsing CSV:', err);
         return reject(new Error(`Failed to parse CSV data: ${err.message}`));
@@ -843,16 +1101,14 @@ async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCou
         return reject(new Error('No records returned from CSV parsing'));
       }
 
-      // Process records asynchronously
       (async () => {
         let successCount = 0;
         let errorCount = 0;
         const errors: string[] = [];
 
-        console.log(`Parsed ${records.length} records from CSV. Attempting to save to database...`);
+        console.log(`Parsed ${records.length} records from CSV. Attempting to save to database for shopId ${shopId}...`);
 
         for (const record of records) {
-          // Access record properties using original CSV header names
           const offerId = record.offerId as string;
           const ean = record.ean as string;
 
@@ -863,13 +1119,12 @@ async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCou
           }
 
           try {
-            const existingOffer = await getOfferById(offerId);
+            const existingOffer = await getOfferById(offerId, shopId);
 
-            // Construct offerPayload by mapping fields from CSV record to IOffer fields
-            // Ensure all IOffer fields are correctly typed and handled if missing from CSV
             const offerPayload: IOffer = {
               offerId: offerId,
               ean: ean,
+              shopId,
               conditionName: record.conditionName as string ?? existingOffer?.conditionName ?? null,
               conditionCategory: record.conditionCategory as string ?? existingOffer?.conditionCategory ?? null,
               conditionComment: record.conditionComment as string ?? existingOffer?.conditionComment ?? null,
@@ -883,344 +1138,54 @@ async function _parseAndSaveOffersFromCsv(csvData: string): Promise<{ successCou
               correctedStock: record.correctedStock as number ?? existingOffer?.correctedStock ?? null,
             };
 
-            // Ensure numeric and boolean fields that might be null/undefined from CSV
-            // are correctly passed or defaulted before DB operation
             offerPayload.bundlePricesPrice = offerPayload.bundlePricesPrice === undefined ? null : offerPayload.bundlePricesPrice;
             offerPayload.stockAmount = offerPayload.stockAmount === undefined ? null : offerPayload.stockAmount;
             offerPayload.correctedStock = offerPayload.correctedStock === undefined ? null : offerPayload.correctedStock;
             offerPayload.onHoldByRetailer = offerPayload.onHoldByRetailer === undefined ? false : offerPayload.onHoldByRetailer;
 
-
             if (existingOffer) {
-              await updateOffer(record.offerId, offerPayload);
-              console.log(`Updated offer with ID: ${record.offerId}`);
+              await updateOffer(offerId, shopId, offerPayload);
+              console.log(`Updated offer with ID: ${offerId} for shopId ${shopId}`);
             } else {
               await createOffer(offerPayload);
-              console.log(`Created new offer with ID: ${record.offerId}`);
+              console.log(`Created new offer with ID: ${offerId} for shopId ${shopId}`);
             }
             successCount++;
           } catch (dbError) {
-            console.error(`Error saving offer with ID ${record.offerId}:`, dbError);
-            errors.push(`Failed to save offer ${record.offerId}: ${(dbError as Error).message}`);
+            console.error(`Error saving offer with ID ${offerId} for shopId ${shopId}:`, dbError);
+            errors.push(`Failed to save offer ${offerId}: ${(dbError as Error).message}`);
             errorCount++;
           }
         }
         console.log(`Finished processing CSV records. Success: ${successCount}, Failed: ${errorCount}`);
+        console.log(`Resolving _parseAndSaveOffersFromCsv Promise with result:`, { successCount, errorCount, errors });
         resolve({ successCount, errorCount, errors });
       })();
     });
   });
 }
-export async function getOfferById(offerId: string): Promise<IOffer | null> {
+
+// --- VAT Rate CRUD ---
+
+export async function getVatRatesForProduct(ean: string, shopId: string): Promise<IProductVatRate[]> {
   const pool = getDBPool();
-  const query = 'SELECT * FROM offers WHERE "offerId" = $1;';
-  try {
-    const result = await pool.query(query, [offerId]);
-    return result.rows.length > 0 ? result.rows[0] : null;
-  } catch (error) {
-    console.error(`Error fetching offer by ID ${offerId}:`, error);
-    throw error;
-  }
+  if (!shopId) throw new Error('shopId is required for fetching VAT rates');
+  const result = await pool.query('SELECT ean, country, vat_rate AS "vatRate", shop_id AS "shopId" FROM product_vat_rates WHERE ean = $1 AND shop_id = $2', [ean, shopId]);
+  return result.rows.map(row => ({ ...row, shopId: row.shop_id }));
 }
 
-export async function getAllOffers(): Promise<IOffer[]> {
+export async function setVatRateForProduct(ean: string, country: string, vatRate: number, shopId: string): Promise<IProductVatRate> {
   const pool = getDBPool();
-  const query = 'SELECT * FROM offers ORDER BY "offerId";';
-  try {
-    const result = await pool.query(query);
-    return result.rows;
-  } catch (error) {
-    console.error('Error fetching all offers:', error);
-    throw error;
-  }
-}
-
-export async function updateOffer(offerId: string, updateData: Partial<IOffer>): Promise<IOffer | null> {
-  const pool = getDBPool();
-  const setClauses: string[] = [];
-  const values: any[] = [];
-  let valueCount = 1;
-
-  for (const [key, value] of Object.entries(updateData)) {
-    if (value !== undefined && key !== 'offerId') { // offerId should not be updated
-        setClauses.push(`"${key}" = $${valueCount++}`);
-        values.push(value);
-    }
-  }
-
-  if (setClauses.length === 0) return getOfferById(offerId);
-  values.push(offerId);
-
-  const query = `
-    UPDATE offers SET ${setClauses.join(', ')}
-    WHERE "offerId" = $${valueCount} RETURNING *;`;
-  try {
-    const result = await pool.query(query, values);
-    return result.rows.length > 0 ? result.rows[0] : null;
-  } catch (error) {
-    console.error(`Error updating offer ID ${offerId}:`, error);
-    throw error;
-  }
-}
-
-export async function deleteOffer(offerId: string): Promise<boolean> {
-  const pool = getDBPool();
-  const query = 'DELETE FROM offers WHERE "offerId" = $1;';
-  try {
-    const result = await pool.query(query, [offerId]);
-    return result.rowCount !== null && result.rowCount > 0;
-  } catch (error) {
-    console.error(`Error deleting offer ID ${offerId}:`, error);
-    throw error;
-  }
-}
-
-// --- Service functions for Orders CRUD ---
-
-export async function createOrder(orderData: IOrder): Promise<IOrder> {
-  const pool = getDBPool();
-  const { orderId, orderPlacedDateTime = new Date(), orderItems } = orderData;
-  const orderItemsJson = typeof orderItems === 'string' ? orderItems : JSON.stringify(orderItems);
-
-  const query = `
-    INSERT INTO orders ("orderId", "orderPlacedDateTime", "orderItems")
-    VALUES ($1, $2, $3) RETURNING *;`;
-  const values = [orderId, orderPlacedDateTime, orderItemsJson];
-
-  try {
-    const result = await pool.query(query, values);
-    const dbOrder = result.rows[0];
-    if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
-        try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); }
-        catch (e) { console.error('Failed to parse orderItems JSON from DB for orderId:', dbOrder.orderId, e); }
-    }
-    return dbOrder;
-  } catch (error) {
-    console.error('Error creating order:', error);
-    throw error;
-  }
-}
-
-export async function getOrderById(orderId: string): Promise<IOrder | null> {
-  const pool = getDBPool();
-  const query = 'SELECT * FROM orders WHERE "orderId" = $1;';
-  try {
-    const result = await pool.query(query, [orderId]);
-    if (result.rows.length > 0) {
-      const dbOrder = result.rows[0];
-      if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
-         try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); }
-         catch (e) { console.error('Failed to parse orderItems JSON from DB for orderId:', dbOrder.orderId, e); }
-      }
-      return dbOrder;
-    }
-    return null;
-  } catch (error) {
-    console.error(`Error fetching order by ID ${orderId}:`, error);
-    throw error;
-  }
-}
-
-export async function getAllOrders(): Promise<IOrder[]> {
-  const pool = getDBPool();
-  const query = 'SELECT * FROM orders ORDER BY "orderPlacedDateTime" DESC;';
-  try {
-    const result = await pool.query(query);
-    return result.rows.map(dbOrder => {
-        if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
-            try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); }
-            catch (e) { console.error('Failed to parse orderItems JSON from DB for orderId:', dbOrder.orderId, e); }
-        }
-        return dbOrder;
-    });
-  } catch (error) {
-    console.error('Error fetching all orders:', error);
-    throw error;
-  }
-}
-
-export async function updateOrder(orderId: string, updateData: Partial<IOrder>): Promise<IOrder | null> {
-  const pool = getDBPool();
-  const setClauses: string[] = [];
-  const values: any[] = [];
-  let valueCount = 1;
-
-  if (updateData.orderItems !== undefined) {
-    const orderItemsValue = typeof updateData.orderItems === 'string'
-        ? updateData.orderItems : JSON.stringify(updateData.orderItems);
-    setClauses.push(`"orderItems" = $${valueCount++}`);
-    values.push(orderItemsValue);
-    delete updateData.orderItems;
-  }
-
-  for (const [key, value] of Object.entries(updateData)) {
-    if (value !== undefined && key !== 'orderId') {
-        setClauses.push(`"${key}" = $${valueCount++}`);
-        values.push(value);
-    }
-  }
-
-  if (setClauses.length === 0) return getOrderById(orderId);
-  values.push(orderId);
-
-  const query = `
-    UPDATE orders SET ${setClauses.join(', ')}
-    WHERE "orderId" = $${valueCount} RETURNING *;`;
-  try {
-    const result = await pool.query(query, values);
-    if (result.rows.length > 0) {
-        const dbOrder = result.rows[0];
-        if (dbOrder.orderItems && typeof dbOrder.orderItems === 'string') {
-           try { dbOrder.orderItems = JSON.parse(dbOrder.orderItems); }
-           catch (e) { console.error('Failed to parse orderItems JSON from DB for orderId:', dbOrder.orderId, e); }
-        }
-        return dbOrder;
-    }
-    return null;
-  } catch (error) {
-    console.error(`Error updating order ID ${orderId}:`, error);
-    throw error;
-  }
-}
-
-export async function deleteOrder(orderId: string): Promise<boolean> {
-  const pool = getDBPool();
-  const query = 'DELETE FROM orders WHERE "orderId" = $1;';
-  try {
-    const result = await pool.query(query, [orderId]);
-    return result.rowCount !== null && result.rowCount > 0;
-  } catch (error) {
-    console.error(`Error deleting order ID ${orderId}:`, error);
-    throw error;
-  }
-}
-
-// --- Service functions for OrderItems CRUD ---
-
-export async function createOrderItem(orderItemData: IOrderItem): Promise<IOrderItem> {
-  const pool = getDBPool();
-  const {
-    orderItemId, orderId, ean, fulfilmentMethod = null, fulfilmentStatus = null,
-    quantity = 0, quantityShipped = 0, quantityCancelled = 0,
-    cancellationRequest = false, latestChangedDateTime = new Date(),
-  } = orderItemData;
-
-  const orderCheckQuery = 'SELECT "orderId" FROM orders WHERE "orderId" = $1';
-  const orderCheckResult = await pool.query(orderCheckQuery, [orderId]);
-  if (orderCheckResult.rowCount === 0) {
-    throw new Error(`Order with ID ${orderId} not found. Cannot create order item.`);
-  }
-
-  const query = `
-    INSERT INTO order_items (
-      "orderItemId", "orderId", ean, "fulfilmentMethod", "fulfilmentStatus",
-      quantity, "quantityShipped", "quantityCancelled", "cancellationRequest", "latestChangedDateTime"
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    RETURNING *;
-  `;
-  const values = [
-    orderItemId, orderId, ean, fulfilmentMethod, fulfilmentStatus,
-    quantity, quantityShipped, quantityCancelled, cancellationRequest, latestChangedDateTime
-  ];
-
-  try {
-    const result = await pool.query(query, values);
-    return result.rows[0];
-  } catch (error) {
-    console.error('Error creating order item:', error);
-    if (error instanceof Error && 'code' in error && (error as any).code === '23503') {
-        throw new Error(`Order with ID ${orderId} not found or another foreign key constraint failed.`);
-    }
-    throw error;
-  }
-}
-
-export async function getOrderItemById(orderItemId: string): Promise<IOrderItem | null> {
-  const pool = getDBPool();
-  const query = 'SELECT * FROM order_items WHERE "orderItemId" = $1;';
-  try {
-    const result = await pool.query(query, [orderItemId]);
-    return result.rows.length > 0 ? result.rows[0] : null;
-  } catch (error) {
-    console.error(`Error fetching order item by ID ${orderItemId}:`, error);
-    throw error;
-  }
-}
-
-export async function getOrderItemsByOrderId(orderId: string): Promise<IOrderItem[]> {
-  const pool = getDBPool();
-  const query = 'SELECT * FROM order_items WHERE "orderId" = $1 ORDER BY "orderItemId";';
-  try {
-    const result = await pool.query(query, [orderId]);
-    return result.rows;
-  } catch (error) {
-    console.error(`Error fetching order items for order ID ${orderId}:`, error);
-    throw error;
-  }
-}
-
-export async function updateOrderItem(orderItemId: string, updateData: Partial<IOrderItem>): Promise<IOrderItem | null> {
-  const pool = getDBPool();
-  const setClauses: string[] = [];
-  const values: any[] = [];
-  let valueCount = 1;
-
-  for (const [key, value] of Object.entries(updateData)) {
-    if (key === 'orderItemId' || key === 'orderId') continue;
-    if (value !== undefined) {
-        setClauses.push(`"${key}" = $${valueCount++}`);
-        values.push(value);
-    }
-  }
-
-  if (setClauses.length === 0) return getOrderItemById(orderItemId);
-  values.push(orderItemId);
-
-  const query = `
-    UPDATE order_items SET ${setClauses.join(', ')}
-    WHERE "orderItemId" = $${valueCount} RETURNING *;`;
-  try {
-    const result = await pool.query(query, values);
-    return result.rows.length > 0 ? result.rows[0] : null;
-  } catch (error) {
-    console.error(`Error updating order item ID ${orderItemId}:`, error);
-    throw error;
-  }
-}
-
-export async function deleteOrderItem(orderItemId: string): Promise<boolean> {
-  const pool = getDBPool();
-  const query = 'DELETE FROM order_items WHERE "orderItemId" = $1;';
-  try {
-    const result = await pool.query(query, [orderItemId]);
-    return result.rowCount !== null && result.rowCount > 0;
-  } catch (error) {
-    console.error(`Error deleting order item ID ${orderItemId}:`, error);
-    throw error;
-  }
-}
-
-// Get all VAT rates for a product (by EAN)
-export async function getVatRatesForProduct(ean: string): Promise<IProductVatRate[]> {
-  const pool = getDBPool();
-  const result = await pool.query('SELECT ean, country, vat_rate AS "vatRate" FROM product_vat_rates WHERE ean = $1', [ean]);
-  return result.rows as IProductVatRate[];
-}
-
-// Set (insert or update) VAT rate for a product and country
-export async function setVatRateForProduct(ean: string, country: string, vatRate: number): Promise<IProductVatRate> {
-  const pool = getDBPool();
+  if (!shopId) throw new Error('shopId is required for setting VAT rate');
   await pool.query(
-    'INSERT INTO product_vat_rates (ean, country, vat_rate) VALUES ($1, $2, $3) ON CONFLICT (ean, country) DO UPDATE SET vat_rate = $3',
-    [ean, country, vatRate]
+    'INSERT INTO product_vat_rates (ean, country, vat_rate, shop_id) VALUES ($1, $2, $3, $4) ON CONFLICT (ean, country, shop_id) DO UPDATE SET vat_rate = $3',
+    [ean, country, vatRate, shopId]
   );
-  return { ean, country, vatRate };
+  return { ean, country, vatRate, shopId };
 }
 
-// Delete VAT rate for a product and country
-export async function deleteVatRateForProduct(ean: string, country: string): Promise<void> {
+export async function deleteVatRateForProduct(ean: string, country: string, shopId: string): Promise<void> {
   const pool = getDBPool();
-  await pool.query('DELETE FROM product_vat_rates WHERE ean = $1 AND country = $2', [ean, country]);
+  if (!shopId) throw new Error('shopId is required for deleting VAT rate');
+  await pool.query('DELETE FROM product_vat_rates WHERE ean = $1 AND country = $2 AND shop_id = $3', [ean, country, shopId]);
 }
-
-

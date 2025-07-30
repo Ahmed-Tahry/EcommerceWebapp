@@ -11,6 +11,7 @@
     "resolveJsonModule": true,
     "moduleResolution": "node",
     "baseUrl": ".",
+    "types": ["vite/client", "./src/types/express"],
     "paths": {
       "@/*": ["src/*"]
     }

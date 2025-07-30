@@ -5,7 +5,7 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 import { callApi } from '@/utils/api';
 
 export default function ShopSync() {
-  const { onboardingStatus, isLoading, shopSyncInProgress, setShopSyncInProgress } = useOnboarding();
+  const { onboardingStatus, isLoading, shopSyncInProgress, setShopSyncInProgress, fetchOnboardingStatus } = useOnboarding();
   const [syncStatus, setSyncStatus] = useState({ offers: '' });
   const [error, setError] = useState(null);
   const [isSyncingOffers, setIsSyncingOffers] = useState(false);
@@ -38,13 +38,23 @@ export default function ShopSync() {
     setSyncTriggered(true);
     try {
       await callApi('/shop/api/shop/offers/export/csv', 'GET');
-      setSyncStatus({ offers: 'Offer export and sync initiated. The system will update when complete.' });
+      setSyncStatus({ offers: 'Offer export and sync completed successfully!' });
+      
+      // Wait a moment for the onboarding status to be updated in the backend
+      setTimeout(async () => {
+        try {
+          // Refetch onboarding status to update the UI
+          await fetchOnboardingStatus();
+        } catch (error) {
+          console.error('Error refetching onboarding status:', error);
+        }
+      }, 1000);
+      
     } catch (err) {
       const errorMessage = (err && err.message) ? err.message : String(err);
       setSyncStatus({ offers: `Error syncing offers: ${errorMessage}` });
       setError(`Offer sync failed: ${errorMessage}`);
       setSyncTriggered(false);
-    } finally {
       setIsSyncingOffers(false);
       setShopSyncInProgress(false);
     }

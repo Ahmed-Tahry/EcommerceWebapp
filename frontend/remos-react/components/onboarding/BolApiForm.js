@@ -2,12 +2,16 @@
 
 import React, { useState } from 'react';
 import { useOnboarding } from '@/contexts/OnboardingContext';
+import { useShop } from '@/contexts/ShopContext';
 import { callApi } from '@/utils/api';
 
 export default function BolApiForm() {
-  const { markStepAsComplete, onboardingStatus } = useOnboarding();
+  const { markStepAsComplete, onboardingStatus, fetchOnboardingStatus } = useOnboarding();
+  const { fetchShops, selectShop } = useShop();
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
+  const [shopName, setShopName] = useState('');
+  const [shopDescription, setShopDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
@@ -19,14 +23,39 @@ export default function BolApiForm() {
     setSuccessMessage('');
 
     try {
-      await callApi('/settings/settings/account', 'POST', {
+      // Use the bolClientId as the shopId
+      const shopId = clientId;
+      
+      console.log('BolApiForm: Submitting Bol credentials with shopId (bolClientId):', shopId);
+      
+      // Call the coupling-bol endpoint that creates a shop
+      const response = await callApi('/settings/settings/coupling-bol', 'POST', {
         bolClientId: clientId,
         bolClientSecret: clientSecret,
+        shopName: shopName || `Bol.com Shop (${clientId})`,
+        shopDescription: shopDescription || 'Bol.com connected store',
+        shopId: shopId // This is the bolClientId
       });
-      setSuccessMessage('Bol.com credentials saved successfully! ');
+      
+      console.log('BolApiForm: Response from coupling-bol:', response);
+      
+      setSuccessMessage('Bol.com credentials saved and shop created successfully!');
 
-      await markStepAsComplete('hasConfiguredBolApi');
-      setSuccessMessage(prev => prev + 'Onboarding step updated.');
+      // Refresh shops list to include the newly created shop
+      await fetchShops();
+      
+      // Select the newly created shop
+      if (response.shop) {
+        console.log('BolApiForm: Selecting newly created shop:', response.shop);
+        selectShop(response.shop);
+      }
+      
+      // The backend already updated the onboarding status in the coupling-bol response
+      // Just refresh the onboarding status to reflect the changes
+      console.log('BolApiForm: Refreshing onboarding status after successful coupling');
+      await fetchOnboardingStatus();
+      console.log('BolApiForm: Onboarding status refreshed, current status:', onboardingStatus);
+      setSuccessMessage(prev => prev + ' Onboarding step updated.');
 
     } catch (err) {
       console.error('Failed to configure Bol.com API:', err);
@@ -47,7 +76,6 @@ export default function BolApiForm() {
       </div>
     );
   }
-
 
   return (
     <div className="p-6 bg-white border border-gray-200 rounded-lg shadow-md wg-box">
@@ -81,6 +109,30 @@ export default function BolApiForm() {
             placeholder="Enter your Bol.com Client Secret"
             className="flex-grow w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             required
+            disabled={isLoading}
+          />
+        </fieldset>
+
+        <fieldset>
+          <div className="body-title mb-2">Shop Name</div>
+          <input
+            type="text"
+            value={shopName}
+            onChange={(e) => setShopName(e.target.value)}
+            placeholder="Enter your shop name (optional)"
+            className="flex-grow w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            disabled={isLoading}
+          />
+        </fieldset>
+
+        <fieldset>
+          <div className="body-title mb-2">Shop Description</div>
+          <textarea
+            value={shopDescription}
+            onChange={(e) => setShopDescription(e.target.value)}
+            placeholder="Enter your shop description (optional)"
+            className="flex-grow w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            rows="3"
             disabled={isLoading}
           />
         </fieldset>

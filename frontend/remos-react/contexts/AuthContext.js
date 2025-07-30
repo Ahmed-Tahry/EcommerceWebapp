@@ -59,6 +59,23 @@ export const AuthProvider = ({ children }) => {
         setAuthenticated(auth);
         setToken(kc.token);
         if (auth) {
+          // Extract and store user ID from token
+          if (kc.token) {
+            try {
+              const tokenPayload = JSON.parse(atob(kc.token.split('.')[1]));
+              console.log('AuthContext: Token payload:', tokenPayload);
+              const userId = tokenPayload.sub || tokenPayload.user_id || tokenPayload.preferred_username;
+              if (userId) {
+                localStorage.setItem('userId', userId);
+                console.log('AuthContext: Stored userId in localStorage:', userId);
+              } else {
+                console.error('AuthContext: No userId found in token payload');
+              }
+            } catch (error) {
+              console.error('AuthContext: Failed to extract userId from token:', error);
+            }
+          }
+          
           kc.loadUserProfile()
             .then(profile => setUserProfile(profile))
             .catch(err => {
@@ -84,6 +101,22 @@ export const AuthProvider = ({ children }) => {
       console.log('Auth Success');
       setAuthenticated(true);
       setToken(kc.token);
+      
+      // Extract and store user ID from token
+      if (kc.token) {
+        try {
+          const tokenPayload = JSON.parse(atob(kc.token.split('.')[1]));
+          console.log('AuthContext: Token payload:', tokenPayload);
+          const userId = tokenPayload.sub || tokenPayload.user_id || tokenPayload.preferred_username;
+          if (userId) {
+            localStorage.setItem('userId', userId);
+            console.log('AuthContext: Stored userId in localStorage:', userId);
+          }
+        } catch (error) {
+          console.error('AuthContext: Failed to extract userId from token:', error);
+        }
+      }
+      
       kc.loadUserProfile().then(setUserProfile).catch(() => setUserProfile(null));
     };
     kc.onAuthError = (errorData) => {
@@ -91,6 +124,8 @@ export const AuthProvider = ({ children }) => {
       setAuthenticated(false);
       setUserProfile(null);
       setToken(null);
+      localStorage.removeItem('userId');
+      console.log('AuthContext: Cleared userId from localStorage on auth error');
     };
     kc.onAuthRefreshSuccess = () => {
       console.log('Token Refreshed');
@@ -101,6 +136,8 @@ export const AuthProvider = ({ children }) => {
       setAuthenticated(false);
       setUserProfile(null);
       setToken(null);
+      localStorage.removeItem('userId');
+      console.log('AuthContext: Cleared userId from localStorage on refresh error');
       kc.logout();
     };
     kc.onTokenExpired = () => {
