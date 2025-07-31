@@ -80,7 +80,7 @@ export const OnboardingProvider = ({ children }) => {
   useEffect(() => {
     if (authenticated && !authIsLoading) {
       console.log('OnboardingContext: Shop changed, fetching onboarding status');
-      setHasInitializedStep(false); // Reset initialization flag when shop changes
+      // This line is no longer needed as step calculation is manual
       setCurrentStepWithLog(1); // Reset to step 1 for new shop
       fetchOnboardingStatus();
     }
@@ -173,57 +173,7 @@ export const OnboardingProvider = ({ children }) => {
     }
   }, [currentStep]);
 
-  // Note: calculateCurrentStep function removed - all navigation is now manual
-
-  // Calculate step only on first mount to show correct initial step
-  const [hasInitializedStep, setHasInitializedStep] = useState(false);
-  
-  useEffect(() => {
-    console.log('OnboardingContext: Initial step calculation useEffect triggered, hasInitializedStep:', hasInitializedStep);
-    
-    const calculateAndSetStep = () => {
-      // Only run if we haven't initialized yet and we have valid data from backend
-      if (!authIsLoading && authenticated && !isLoading && !hasInitializedStep && selectedShop) {
-        console.log('OnboardingContext: Calculating initial step based on onboarding status:', onboardingStatus);
-        console.log('OnboardingContext: hasConfiguredBolApi:', onboardingStatus.hasConfiguredBolApi);
-        console.log('OnboardingContext: hasCompletedShopSync:', onboardingStatus.hasCompletedShopSync);
-        console.log('OnboardingContext: hasCompletedInvoiceSetup:', onboardingStatus.hasCompletedInvoiceSetup);
-        
-        // Only proceed if we have actual data from backend (not initial false values)
-        // This prevents calculating step with initial false values
-        if (onboardingStatus === initialStatus) {
-          console.log('OnboardingContext: Still using initial status, waiting for backend data');
-          return;
-        }
-        
-        // Additional check: if we're on step 1 and all onboarding status is false, stay on step 1
-        if (currentStep === 1 && !onboardingStatus.hasConfiguredBolApi && !onboardingStatus.hasCompletedShopSync && !onboardingStatus.hasCompletedInvoiceSetup) {
-          console.log('OnboardingContext: Already on step 1 with all false status, staying on step 1');
-          return;
-        }
-        
-        // Calculate the correct step based on onboarding status
-        let calculatedStep = 1;
-        
-        // Show the current step to work on based on completion status
-        if (onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedInvoiceSetup) {
-          calculatedStep = 5; // All complete - show completion step
-        } else if (onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync) {
-          calculatedStep = 3; // Show VAT Setup
-        } else if (onboardingStatus.hasConfiguredBolApi) {
-          calculatedStep = 2; // Show Shop Sync
-        } else {
-          calculatedStep = 1; // Show Bol credentials
-        }
-        
-        console.log('OnboardingContext: Setting initial step to:', calculatedStep);
-        setCurrentStepWithLog(calculatedStep);
-        setHasInitializedStep(true);
-      }
-    };
-    
-    calculateAndSetStep();
-  }, [selectedShop, authenticated, authIsLoading, isLoading, hasInitializedStep]); // Run when shop changes, but only once
+  // All step calculation and navigation is now manual, controlled by the user.
 
   const value = {
     onboardingStatus,

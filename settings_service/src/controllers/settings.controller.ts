@@ -174,13 +174,8 @@ export const saveInvoiceSettingsHandler = async (req: Request, res: Response, ne
   try {
     const userId = req.userId as string;
     const shopId = req.shopId as string;
-    const { companyName, companyAddress, companyPhone, companyEmail, vatNumber, defaultInvoiceNotes, invoicePrefix, nextInvoiceNumber, bankAccount, startNumber, fileNameBase } = req.body;
+    const { defaultInvoiceNotes, invoicePrefix, nextInvoiceNumber, bankAccount, startNumber, fileNameBase } = req.body;
     const settingsToSave: Partial<Omit<IInvoiceSettings, 'shopId' | 'createdAt' | 'updatedAt'>> = {};
-    if (companyName !== undefined) settingsToSave.companyName = companyName;
-    if (companyAddress !== undefined) settingsToSave.companyAddress = companyAddress;
-    if (companyPhone !== undefined) settingsToSave.companyPhone = companyPhone;
-    if (companyEmail !== undefined) settingsToSave.companyEmail = companyEmail;
-    if (vatNumber !== undefined) settingsToSave.vatNumber = vatNumber;
     if (defaultInvoiceNotes !== undefined) settingsToSave.defaultInvoiceNotes = defaultInvoiceNotes;
     if (invoicePrefix !== undefined) settingsToSave.invoicePrefix = invoicePrefix;
     if (nextInvoiceNumber !== undefined) {
@@ -198,13 +193,27 @@ export const saveInvoiceSettingsHandler = async (req: Request, res: Response, ne
       const currentSettings = await SettingsService.getInvoiceSettings(shopId);
       return res.status(200).json(currentSettings);
     }
-    const savedSettings = await SettingsService.saveInvoiceSettings(shopId, settingsToSave);
-    // Update onboarding status
-    const updates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'shopId' | 'createdAt' | 'updatedAt'>> = {
-      hasCompletedInvoiceSetup: true,
-    };
-    const updatedStatus = await SettingsService.updateOnboardingStatus(userId, shopId, updates);
-    res.status(200).json({ settings: savedSettings, onboardingStatus: updatedStatus });
+
+    console.log(`saveInvoiceSettingsHandler: Processing for userId ${userId}, shopId ${shopId}`);
+
+    // 1. Check/Create shop FIRST (before saving invoice settings)
+    let shop = await SettingsService.getShopByShopId(userId, shopId);
+    if (!shop) {
+      console.log(`saveInvoiceSettingsHandler: Creating new shop with shopId ${shopId}`);
+      shop = await SettingsService.createShop({
+        userId,
+        shopId,
+        name: `Shop ${shopId.substring(0, 8)}...`,
+        description: 'Auto-created shop for invoice settings'
+      });
+      console.log(`saveInvoiceSettingsHandler: New shop created:`, shop);
+    } else {
+      console.log(`saveInvoiceSettingsHandler: Existing shop found:`, shop);
+    }
+
+    // 2. Save invoice settings AFTER shop is created
+    const updated = await SettingsService.saveInvoiceSettings(shopId, settingsToSave);
+    res.status(200).json(updated);
   } catch (error) {
     console.error(`Error saving invoice settings for shopId ${req.shopId}:`, error);
     next(error);
@@ -229,7 +238,27 @@ export const getGeneralSettingsHandler = async (req: Request, res: Response, nex
 
 export const saveGeneralSettingsHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userId = req.userId as string;
     const shopId = req.shopId as string;
+    
+    console.log(`saveGeneralSettingsHandler: Processing for userId ${userId}, shopId ${shopId}`);
+
+    // 1. Check/Create shop FIRST (before saving general settings)
+    let shop = await SettingsService.getShopByShopId(userId, shopId);
+    if (!shop) {
+      console.log(`saveGeneralSettingsHandler: Creating new shop with shopId ${shopId}`);
+      shop = await SettingsService.createShop({
+        userId,
+        shopId,
+        name: `Shop ${shopId.substring(0, 8)}...`,
+        description: 'Auto-created shop for general settings'
+      });
+      console.log(`saveGeneralSettingsHandler: New shop created:`, shop);
+    } else {
+      console.log(`saveGeneralSettingsHandler: Existing shop found:`, shop);
+    }
+
+    // 2. Save general settings AFTER shop is created
     const updated = await SettingsService.saveGeneralSettings(shopId, req.body);
     res.status(200).json(updated);
   } catch (error) {
@@ -257,47 +286,44 @@ export const getCouplingBolHandler = async (req: Request, res: Response, next: N
 export const saveCouplingBolHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.userId as string;
-    // Get shopId from body (for new shop creation) or headers (for existing shop)
-    const shopId = req.body.shopId || req.shopId as string;
-    
-    if (!shopId) {
-      return res.status(400).json({ message: 'Shop ID is required. Please provide shopId in request body or X-Shop-ID header.' });
+    const { bolClientId, bolClientSecret, shopName, shopDescription } = req.body;
+    const shopId = bolClientId; // Use bolClientId as the shopId
+
+    if (!bolClientId || !bolClientSecret) {
+      return res.status(400).json({ message: 'bolClientId and bolClientSecret are required.' });
     }
 
     console.log(`saveCouplingBolHandler: Processing for userId ${userId}, shopId ${shopId}`);
 
-    // 1. Check/Create shop FIRST (before saving account details)
-    let shop = await SettingsService.getShopByShopId(userId, shopId);
-    if (!shop) {
-      console.log(`saveCouplingBolHandler: Creating new shop with shopId ${shopId}`);
-      shop = await SettingsService.createShop({
-        userId,
-        shopId,
-        name: req.body.shopName || `Shop ${shopId.substring(0, 8)}...`,
-        description: req.body.shopDescription || 'Bol.com connected store'
-      });
-      console.log(`saveCouplingBolHandler: New shop created:`, shop);
-    } else {
-      console.log(`saveCouplingBolHandler: Existing shop found:`, shop);
-    }
+    // 1. Create the shop
+    const shopData = {
+      userId,
+      shopId,
+      name: shopName || `Bol.com Shop (${shopId})`,
+      description: shopDescription || 'Bol.com connected store',
+    };
+    const shop = await SettingsService.createShop(shopData);
 
-    // 2. Save account details AFTER shop is created
-    const updated = await SettingsService.saveAccountDetails(userId, shopId, req.body);
+    // 2. Save Bol.com credentials
+    const accountDetails = {
+      bolClientId,
+      bolClientSecret,
+    };
+    const updated = await SettingsService.saveAccountDetails(userId, shopId, accountDetails);
 
     // 3. Update onboarding status
     const updatedStatus = await SettingsService.updateOnboardingStatus(userId, shopId, {
-      hasConfiguredBolApi: true
+      hasConfiguredBolApi: true,
     });
 
     console.log(`saveCouplingBolHandler: Onboarding status updated:`, updatedStatus);
 
     res.status(200).json({
       settings: updated,
-      shop: shop,
       onboardingStatus: updatedStatus
     });
   } catch (error) {
-    console.error(`Error saving Bol coupling for shopId ${req.body.shopId || req.shopId}:`, error);
+    console.error(`Error saving Bol coupling for shopId ${req.shopId}:`, error);
     next(error);
   }
 };
@@ -391,10 +417,11 @@ export const updateOnboardingStepHandler = async (req: Request, res: Response, n
     const userId = req.userId as string;
     const shopId = req.shopId as string;
     const updates: Partial<Omit<IUserOnboardingStatus, 'userId' | 'shopId' | 'createdAt' | 'updatedAt'>> = {};
-    const { hasConfiguredBolApi, hasCompletedShopSync, hasCompletedInvoiceSetup } = req.body;
+    const { hasConfiguredBolApi, hasCompletedShopSync, hasCompletedInvoiceSetup, hasCompletedVatSetup } = req.body;
     if (typeof hasConfiguredBolApi === 'boolean') updates.hasConfiguredBolApi = hasConfiguredBolApi;
     if (typeof hasCompletedShopSync === 'boolean') updates.hasCompletedShopSync = hasCompletedShopSync;
     if (typeof hasCompletedInvoiceSetup === 'boolean') updates.hasCompletedInvoiceSetup = hasCompletedInvoiceSetup;
+    if (typeof hasCompletedVatSetup === 'boolean') updates.hasCompletedVatSetup = hasCompletedVatSetup;
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ message: 'No valid onboarding step data provided in the request body.' });
     }

@@ -23,8 +23,7 @@ export default function ProgressBar({ steps, children }) {
       case 2:
         return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync;
       case 3:
-        // VAT Setup is informational only - always allow proceeding
-        return true;
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup;
       case 4:
         return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedInvoiceSetup;
       case 5:

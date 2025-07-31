@@ -50,12 +50,9 @@ export default function BolApiForm() {
         selectShop(response.shop);
       }
       
-      // The backend already updated the onboarding status in the coupling-bol response
-      // Just refresh the onboarding status to reflect the changes
-      console.log('BolApiForm: Refreshing onboarding status after successful coupling');
-      await fetchOnboardingStatus();
-      console.log('BolApiForm: Onboarding status refreshed, current status:', onboardingStatus);
-      setSuccessMessage(prev => prev + ' Onboarding step updated.');
+      // Mark step 1 as complete and navigate to the next step
+      await markStepAsComplete('hasConfiguredBolApi');
+      goToNextStep();
 
     } catch (err) {
       console.error('Failed to configure Bol.com API:', err);

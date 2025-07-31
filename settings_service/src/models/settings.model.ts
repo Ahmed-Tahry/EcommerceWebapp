@@ -42,6 +42,7 @@ export interface IUserOnboardingStatus {
   hasConfiguredBolApi: boolean;
   hasCompletedShopSync: boolean;
   hasCompletedInvoiceSetup: boolean;
+  hasCompletedVatSetup: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

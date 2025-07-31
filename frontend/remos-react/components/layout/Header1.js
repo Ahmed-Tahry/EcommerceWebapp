@@ -34,31 +34,17 @@ export default function Header1({ scroll, isMobileMenu, handleSidebar, handleOff
                         <div className="button-show-hide" onClick={handleSidebar}>
                             <i className="icon-menu-left" />
                         </div>
-                        <form className="form-search flex-grow">
-                            <fieldset className="name">
-                                <input type="text" placeholder="Search here..." className="show-search" name="name" tabIndex={2} // Removed aria-required and required for simplicity as it's a demo search
-                                />
-                            </fieldset>
-                            <div className="button-submit">
-                                <button type="submit" onClick={(e) => e.preventDefault()}><i className="icon-search" /></button> {/* Prevent actual form submission for demo */}
+                        {authenticated && (
+                            <div className="flex-grow">
+                                <ShopDropdown />
                             </div>
-                            {/* Simplified search box content for brevity during auth integration */}
-                            <div className="box-content-search" id="box-content-search" style={{display: 'none'}}> {/* Hidden for now */}
-                                Search results...
-                            </div>
-                        </form>
+                        )}
                     </div>
                     <div className="header-grid">
                         <div className="header-item">
                             <Language />
                         </div>
                         <ThemeSwitch />
-                        {/* Shop Dropdown - Only show when authenticated */}
-                        {authenticated && (
-                            <div className="header-item">
-                                <ShopDropdown />
-                            </div>
-                        )}
                         {/* Notifications and Messages popups are kept as is for brevity */}
                         <div className="popup-wrap noti type-header">
                              <Menu as="div" className="dropdown">

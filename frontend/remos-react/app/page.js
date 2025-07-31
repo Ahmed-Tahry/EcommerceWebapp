@@ -22,7 +22,7 @@ export default function HomePageWrapper() {
         
         async function checkVat() {
             try {
-                const onboarding = await callApi('/settings/settings/onboarding/status', 'GET');
+                const onboarding = await callApi('/settings/settings/onboarding/user-status', 'GET');
                 if (
                     onboarding.hasConfiguredBolApi &&
                     onboarding.hasCompletedShopSync &&

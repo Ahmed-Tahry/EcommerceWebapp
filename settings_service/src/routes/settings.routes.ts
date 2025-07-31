@@ -56,7 +56,7 @@ router.get('/general', validateUserAndShopId, SettingsController.getGeneralSetti
 router.post('/general', validateUserAndShopId, SettingsController.saveGeneralSettingsHandler);
 
 // Coupling Bol routes - Use validateUserId since we're creating a new shop
-router.get('/coupling-bol', validateUserAndShopId, SettingsController.getCouplingBolHandler);
+router.get('/coupling-bol', validateUserId, SettingsController.getCouplingBolHandler);
 router.post('/coupling-bol', validateUserId, SettingsController.saveCouplingBolHandler);
 
 // Onboarding status routes

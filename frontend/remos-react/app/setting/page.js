@@ -340,9 +340,9 @@ function CouplingBolSection() {
     setError('');
     try {
       await callApi('/settings/settings/coupling-bol', 'POST', form);
-      setSuccess('Coupling Bol settings saved!');
+      setSuccess('Bol.com credentials saved!');
     } catch (err) {
-      setError('Failed to save Coupling Bol settings.');
+      setError('Failed to save Bol.com credentials.');
     } finally {
       setLoading(false);
     }
@@ -352,60 +352,37 @@ function CouplingBolSection() {
   return (
     <form onSubmit={handleSubmit} className="form-style-2">
       <div className="wg-box mb-24">
+        <h6 className="mb-6 text-lg font-medium text-gray-700">Bol.com API Credentials</h6>
+        <p className="text-gray-600 mb-6">Update your Bol.com API credentials for this shop.</p>
+        
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="form-group">
-            <input
-              name="salesNumber"
-              value={form?.salesNumber || ''}
-              onChange={handleChange}
-              placeholder="Sales Number"
-              required
-              className="form-control"
-            />
-          </div>
-          <div className="form-group">
-            <input
-              name="status"
-              value={form?.status || ''}
-              onChange={handleChange}
-              placeholder="Status"
-              required
-              className="form-control"
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div className="form-group">
+            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Client ID</label>
             <input
               name="bolClientId"
               value={form?.bolClientId || ''}
               onChange={handleChange}
-              placeholder="Bol.com Client ID"
+              placeholder="Enter your Bol.com Client ID"
+              required
               className="form-control"
             />
           </div>
           <div className="form-group">
+            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Client Secret</label>
             <input
               name="bolClientSecret"
               value={form?.bolClientSecret || ''}
               onChange={handleChange}
-              placeholder="Bol.com Client Secret"
+              placeholder="Enter your Bol.com Client Secret"
+              type="password"
+              required
               className="form-control"
             />
           </div>
         </div>
-        <div className="form-group mb-6">
-          <textarea
-            name="apiCredentials"
-            value={form?.apiCredentials ? JSON.stringify(form.apiCredentials) : ''}
-            onChange={e => setForm(f => ({ ...f, apiCredentials: e.target.value }))}
-            placeholder="API Credentials (JSON)"
-            className="form-control"
-            rows="4"
-          />
-        </div>
+        
         <div className="flex justify-center">
-          <button type="submit" className="tf-button w180">Save Coupling Bol Settings</button>
+          <button type="submit" className="tf-button w180">Save Bol.com Credentials</button>
         </div>
         {success && <div className="text-green-600 mt-6 text-center">{success}</div>}
         {error && <div className="text-red-600 mt-6 text-center">{error}</div>}
@@ -815,33 +792,36 @@ function InvoiceSettingsSection() {
   return (
     <form onSubmit={handleSubmit} className="form-style-2">
       <div className="wg-box">
+        <h6 className="mb-6 text-lg font-medium text-gray-700">Invoice Configuration</h6>
+        <p className="text-gray-600 mb-6">Configure how your invoices are generated and numbered.</p>
+        
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <div className="form-group">
+            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Invoice Prefix</label>
             <input
               name="invoicePrefix"
               value={form?.invoicePrefix || ''}
               onChange={handleChange}
-              placeholder="Prefix (e.g., BOL-{year}-)"
-              required
+              placeholder="e.g., INV-2024-"
               className="form-control"
             />
           </div>
           <div className="form-group">
+            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Start Number</label>
             <input
               name="startNumber"
               value={form?.startNumber || ''}
               onChange={handleChange}
-              placeholder="Start Number (e.g., 0001)"
-              required
+              placeholder="e.g., 0001"
               className="form-control"
             />
           </div>
           <div className="form-group">
+            <label className="form-label block text-sm font-medium text-gray-700 mb-2">File Name Base</label>
             <select
               name="fileNameBase"
               value={form?.fileNameBase || ''}
               onChange={handleChange}
-              required
               className="form-control"
             >
               <option value="">Select File Name Base</option>
@@ -850,6 +830,21 @@ function InvoiceSettingsSection() {
             </select>
           </div>
         </div>
+        
+        <div className="grid grid-cols-1 gap-4 mb-6">
+          <div className="form-group">
+            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Default Invoice Notes</label>
+            <textarea
+              name="defaultInvoiceNotes"
+              value={form?.defaultInvoiceNotes || ''}
+              onChange={handleChange}
+              placeholder="Default notes to include on all invoices"
+              className="form-control"
+              rows="3"
+            />
+          </div>
+        </div>
+        
         <div className="flex justify-center">
           <button type="submit" className="tf-button w180">Save Invoice Settings</button>
         </div>

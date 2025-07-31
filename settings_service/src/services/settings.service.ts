@@ -34,12 +34,12 @@ export async function saveAccountDetails(
 
   // First, try to update existing record
   const updateQuery = `
-    UPDATE account_details 
-    SET bol_client_id = $3,
-        bol_client_secret = $4,
-        sales_number = $5,
-        status = $6,
-        api_credentials = $7,
+    UPDATE account_details
+    SET bol_client_id = COALESCE($3, bol_client_id),
+        bol_client_secret = COALESCE($4, bol_client_secret),
+        sales_number = COALESCE($5, sales_number),
+        status = COALESCE($6, status),
+        api_credentials = COALESCE($7, api_credentials),
         updated_at = NOW()
     WHERE user_id = $1 AND shop_id = $2
     RETURNING id, user_id AS "userId", shop_id AS "shopId", bol_client_id AS "bolClientId", bol_client_secret AS "bolClientSecret",
@@ -92,9 +92,9 @@ export async function getOnboardingStatus(userId: string, shopId: string): Promi
   try {
     const result = await pool.query(
       `SELECT user_id AS "userId", shop_id AS "shopId", has_configured_bol_api AS "hasConfiguredBolApi",
-              has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
-              created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM user_onboarding_status WHERE user_id = $1 AND shop_id = $2`,
+               has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
+               has_completed_vat_setup AS "hasCompletedVatSetup", created_at AS "createdAt", updated_at AS "updatedAt"
+        FROM user_onboarding_status WHERE user_id = $1 AND shop_id = $2`,
       [userId, shopId]
     );
     if (result.rows.length > 0) {
@@ -107,6 +107,7 @@ export async function getOnboardingStatus(userId: string, shopId: string): Promi
       hasConfiguredBolApi: false,
       hasCompletedShopSync: false,
       hasCompletedInvoiceSetup: false,
+      hasCompletedVatSetup: false,
     };
     return await createOrUpdateOnboardingStatus(defaultStatus);
   } catch (error) {
@@ -127,7 +128,7 @@ async function createOrUpdateOnboardingStatus(
   statusData: Partial<IUserOnboardingStatus> & { userId: string; shopId: string }
 ): Promise<IUserOnboardingStatus> {
   const pool = getDBPool();
-  const { userId, shopId, hasConfiguredBolApi, hasCompletedShopSync, hasCompletedInvoiceSetup } = statusData;
+  const { userId, shopId, hasConfiguredBolApi, hasCompletedShopSync, hasCompletedInvoiceSetup, hasCompletedVatSetup } = statusData;
 
   const updateFields: string[] = [];
   const insertFields: string[] = ['user_id', 'shop_id'];
@@ -148,11 +149,13 @@ async function createOrUpdateOnboardingStatus(
   addField('has_configured_bol_api', hasConfiguredBolApi);
   addField('has_completed_shop_sync', hasCompletedShopSync);
   addField('has_completed_invoice_setup', hasCompletedInvoiceSetup);
+  addField('has_completed_vat_setup', hasCompletedVatSetup);
 
   if (updateFields.length === 0) {
     const existingStatus = await pool.query(
       `SELECT user_id AS "userId", shop_id AS "shopId", has_configured_bol_api AS "hasConfiguredBolApi",
               has_completed_shop_sync AS "hasCompletedShopSync", has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
+              has_completed_vat_setup AS "hasCompletedVatSetup",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM user_onboarding_status WHERE user_id = $1 AND shop_id = $2`,
       [userId, shopId]
@@ -179,6 +182,7 @@ async function createOrUpdateOnboardingStatus(
       has_configured_bol_api AS "hasConfiguredBolApi",
       has_completed_shop_sync AS "hasCompletedShopSync",
       has_completed_invoice_setup AS "hasCompletedInvoiceSetup",
+      has_completed_vat_setup AS "hasCompletedVatSetup",
       created_at AS "createdAt",
       updated_at AS "updatedAt";
   `;
