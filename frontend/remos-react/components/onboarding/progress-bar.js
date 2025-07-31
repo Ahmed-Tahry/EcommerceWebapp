@@ -27,8 +27,7 @@ export default function ProgressBar({ steps, children }) {
       case 4:
         return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedInvoiceSetup;
       case 5:
-        // Completion step - always complete when reached
-        return true;
+        return onboardingStatus.hasConfiguredBolApi && onboardingStatus.hasCompletedShopSync && onboardingStatus.hasCompletedVatSetup && onboardingStatus.hasCompletedInvoiceSetup;
       default:
         return false;
     }
