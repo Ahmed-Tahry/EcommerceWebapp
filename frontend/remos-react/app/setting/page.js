@@ -33,19 +33,17 @@ if (typeof document !== 'undefined') {
 }
 
 const TABS = [
-  { key: 'general', label: 'General' },
-  { key: 'security', label: 'Security' },
-  { key: 'couplingBol', label: 'Coupling Bol' },
-  { key: 'productsVat', label: 'Products & VAT' },
-  { key: 'invoice', label: 'Invoice Settings' },
+  { key: 'general', label: 'General', icon: 'icon-settings' },
+  { key: 'security', label: 'Security', icon: 'icon-lock' },
+  { key: 'couplingBol', label: 'Coupling Bol', icon: 'icon-link' },
+  { key: 'productsVat', label: 'Products & VAT', icon: 'icon-box' },
+  { key: 'invoice', label: 'Invoice Settings', icon: 'icon-file-text' },
 ];
 
 function SectionWrapper({ title, children }) {
   return (
-    <div className="wg-box mb-30 shadow-sm rounded-lg">
-      <div className="flex items-center justify-between mb-24">
-        <h5 className="text-xl font-semibold text-gray-800">{title}</h5>
-      </div>
+    <div className="settings-section">
+      <h5 className="text-xl font-semibold text-gray-800 mb-4">{title}</h5>
       <div>{children}</div>
     </div>
   );
@@ -89,14 +87,16 @@ function GeneralSection() {
     }
   }
 
-  if (loading) return <div className="wg-box">Loading...</div>;
+  if (loading) return <div className="wg-box flex justify-center items-center p-10"><div className="spinner"></div></div>;
   return (
     <form onSubmit={handleSubmit} className="form-style-2">
       <div className="wg-box mb-24">
         <h6 className="mb-6 text-lg font-medium text-gray-700">Personal Information</h6>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="form-group">
+            <label htmlFor="firstname">First Name</label>
             <input
+              id="firstname"
               name="firstname"
               value={form?.firstname || ''}
               onChange={handleChange}
@@ -106,7 +106,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="surname">Surname</label>
             <input
+              id="surname"
               name="surname"
               value={form?.surname || ''}
               onChange={handleChange}
@@ -118,7 +120,9 @@ function GeneralSection() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="form-group">
+            <label htmlFor="address">Address</label>
             <input
+              id="address"
               name="address"
               value={form?.address || ''}
               onChange={handleChange}
@@ -128,7 +132,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="postcode">Postcode</label>
             <input
+              id="postcode"
               name="postcode"
               value={form?.postcode || ''}
               onChange={handleChange}
@@ -138,7 +144,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="city">City</label>
             <input
+              id="city"
               name="city"
               value={form?.city || ''}
               onChange={handleChange}
@@ -150,8 +158,11 @@ function GeneralSection() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="form-group">
+            <label htmlFor="accountEmail">Account Email</label>
             <input
+              id="accountEmail"
               name="accountEmail"
+              type="email"
               value={form?.accountEmail || ''}
               onChange={handleChange}
               placeholder="Account Email"
@@ -160,7 +171,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="phoneNumber">Phone Number</label>
             <input
+              id="phoneNumber"
               name="phoneNumber"
               value={form?.phoneNumber || ''}
               onChange={handleChange}
@@ -175,7 +188,9 @@ function GeneralSection() {
         <h6 className="mb-6 text-lg font-medium text-gray-700">Company Details</h6>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="form-group">
+            <label htmlFor="companyName">Company Name</label>
             <input
+              id="companyName"
               name="companyName"
               value={form?.companyName || ''}
               onChange={handleChange}
@@ -185,7 +200,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="companyAddress">Company Address</label>
             <input
+              id="companyAddress"
               name="companyAddress"
               value={form?.companyAddress || ''}
               onChange={handleChange}
@@ -197,7 +214,9 @@ function GeneralSection() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="form-group">
+            <label htmlFor="companyPostcode">Company Postcode</label>
             <input
+              id="companyPostcode"
               name="companyPostcode"
               value={form?.companyPostcode || ''}
               onChange={handleChange}
@@ -207,7 +226,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="companyCity">Company City</label>
             <input
+              id="companyCity"
               name="companyCity"
               value={form?.companyCity || ''}
               onChange={handleChange}
@@ -219,8 +240,11 @@ function GeneralSection() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="form-group">
+            <label htmlFor="customerEmail">Customer Email</label>
             <input
+              id="customerEmail"
               name="customerEmail"
+              type="email"
               value={form?.customerEmail || ''}
               onChange={handleChange}
               placeholder="Customer Email"
@@ -229,7 +253,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="companyPhoneNumber">Company Phone Number</label>
             <input
+              id="companyPhoneNumber"
               name="companyPhoneNumber"
               value={form?.companyPhoneNumber || ''}
               onChange={handleChange}
@@ -244,7 +270,9 @@ function GeneralSection() {
         <h6 className="mb-6 text-lg font-medium text-gray-700">Additional Company Details</h6>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="form-group">
+            <label htmlFor="chamberOfCommerce">Chamber of Commerce</label>
             <input
+              id="chamberOfCommerce"
               name="chamberOfCommerce"
               value={form?.chamberOfCommerce || ''}
               onChange={handleChange}
@@ -254,7 +282,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="vatNumber">VAT Number</label>
             <input
+              id="vatNumber"
               name="vatNumber"
               value={form?.vatNumber || ''}
               onChange={handleChange}
@@ -264,7 +294,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="iban">IBAN</label>
             <input
+              id="iban"
               name="iban"
               value={form?.iban || ''}
               onChange={handleChange}
@@ -273,7 +305,9 @@ function GeneralSection() {
             />
           </div>
           <div className="form-group">
+            <label htmlFor="optionalVatNumber">Optional VAT Number</label>
             <input
+              id="optionalVatNumber"
               name="optionalVatNumber"
               value={form?.optionalVatNumber || ''}
               onChange={handleChange}
@@ -282,11 +316,11 @@ function GeneralSection() {
             />
           </div>
         </div>
-        <div className="flex justify-center">
-          <button type="submit" className="tf-button w180">Save General Settings</button>
+        <div className="action-bar">
+          <button type="submit" className="tf-button">Save General Settings</button>
         </div>
-        {success && <div className="text-green-600 mt-6 text-center">{success}</div>}
-        {error && <div className="text-red-600 mt-6 text-center">{error}</div>}
+        {success && <div className="alert alert-success">{success} <button onClick={() => setSuccess('')} className="close-btn">&times;</button></div>}
+        {error && <div className="alert alert-error">{error} <button onClick={() => setError('')} className="close-btn">&times;</button></div>}
       </div>
     </form>
   );
@@ -348,7 +382,7 @@ function CouplingBolSection() {
     }
   }
 
-  if (loading) return <div className="wg-box">Loading...</div>;
+  if (loading) return <div className="wg-box flex justify-center items-center p-10"><div className="spinner"></div></div>;
   return (
     <form onSubmit={handleSubmit} className="form-style-2">
       <div className="wg-box mb-24">
@@ -357,8 +391,9 @@ function CouplingBolSection() {
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="form-group">
-            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Client ID</label>
+            <label htmlFor="bolClientId" className="form-label block text-sm font-medium text-gray-700 mb-2">Client ID</label>
             <input
+              id="bolClientId"
               name="bolClientId"
               value={form?.bolClientId || ''}
               onChange={handleChange}
@@ -368,8 +403,9 @@ function CouplingBolSection() {
             />
           </div>
           <div className="form-group">
-            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Client Secret</label>
+            <label htmlFor="bolClientSecret" className="form-label block text-sm font-medium text-gray-700 mb-2">Client Secret</label>
             <input
+              id="bolClientSecret"
               name="bolClientSecret"
               value={form?.bolClientSecret || ''}
               onChange={handleChange}
@@ -381,11 +417,11 @@ function CouplingBolSection() {
           </div>
         </div>
         
-        <div className="flex justify-center">
-          <button type="submit" className="tf-button w180">Save Bol.com Credentials</button>
+        <div className="action-bar">
+          <button type="submit" className="tf-button">Save Bol.com Credentials</button>
         </div>
-        {success && <div className="text-green-600 mt-6 text-center">{success}</div>}
-        {error && <div className="text-red-600 mt-6 text-center">{error}</div>}
+        {success && <div className="alert alert-success">{success} <button onClick={() => setSuccess('')} className="close-btn">&times;</button></div>}
+        {error && <div className="alert alert-error">{error} <button onClick={() => setError('')} className="close-btn">&times;</button></div>}
       </div>
     </form>
   );
@@ -788,7 +824,7 @@ function InvoiceSettingsSection() {
     }
   }
 
-  if (loading) return <div className="wg-box">Loading...</div>;
+  if (loading) return <div className="wg-box flex justify-center items-center p-10"><div className="spinner"></div></div>;
   return (
     <form onSubmit={handleSubmit} className="form-style-2">
       <div className="wg-box">
@@ -797,8 +833,9 @@ function InvoiceSettingsSection() {
         
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <div className="form-group">
-            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Invoice Prefix</label>
+            <label htmlFor="invoicePrefix" className="form-label block text-sm font-medium text-gray-700 mb-2">Invoice Prefix</label>
             <input
+              id="invoicePrefix"
               name="invoicePrefix"
               value={form?.invoicePrefix || ''}
               onChange={handleChange}
@@ -807,8 +844,9 @@ function InvoiceSettingsSection() {
             />
           </div>
           <div className="form-group">
-            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Start Number</label>
+            <label htmlFor="startNumber" className="form-label block text-sm font-medium text-gray-700 mb-2">Start Number</label>
             <input
+              id="startNumber"
               name="startNumber"
               value={form?.startNumber || ''}
               onChange={handleChange}
@@ -817,8 +855,9 @@ function InvoiceSettingsSection() {
             />
           </div>
           <div className="form-group">
-            <label className="form-label block text-sm font-medium text-gray-700 mb-2">File Name Base</label>
+            <label htmlFor="fileNameBase" className="form-label block text-sm font-medium text-gray-700 mb-2">File Name Base</label>
             <select
+              id="fileNameBase"
               name="fileNameBase"
               value={form?.fileNameBase || ''}
               onChange={handleChange}
@@ -833,8 +872,9 @@ function InvoiceSettingsSection() {
         
         <div className="grid grid-cols-1 gap-4 mb-6">
           <div className="form-group">
-            <label className="form-label block text-sm font-medium text-gray-700 mb-2">Default Invoice Notes</label>
+            <label htmlFor="defaultInvoiceNotes" className="form-label block text-sm font-medium text-gray-700 mb-2">Default Invoice Notes</label>
             <textarea
+              id="defaultInvoiceNotes"
               name="defaultInvoiceNotes"
               value={form?.defaultInvoiceNotes || ''}
               onChange={handleChange}
@@ -845,11 +885,11 @@ function InvoiceSettingsSection() {
           </div>
         </div>
         
-        <div className="flex justify-center">
-          <button type="submit" className="tf-button w180">Save Invoice Settings</button>
+        <div className="action-bar">
+          <button type="submit" className="tf-button">Save Invoice Settings</button>
         </div>
-        {success && <div className="text-green-600 mt-6 text-center">{success}</div>}
-        {error && <div className="text-red-600 mt-6 text-center">{error}</div>}
+        {success && <div className="alert alert-success">{success} <button onClick={() => setSuccess('')} className="close-btn">&times;</button></div>}
+        {error && <div className="alert alert-error">{error} <button onClick={() => setError('')} className="close-btn">&times;</button></div>}
       </div>
     </form>
   );
@@ -913,7 +953,7 @@ export default function Setting() {
 
   return (
     <Layout breadcrumbTitleParent="Account" breadcrumbTitle="Settings">
-      <div className="max-w-4xl mx-auto px-4 py-10">
+      <div className="max-w-7xl mx-auto px-4 py-10">
         <div className="wg-box mb-30">
           <div className="flex flex-wrap gap-3 mb-0">
             {TABS.map(t => (
@@ -922,17 +962,21 @@ export default function Setting() {
                 className={`tf-button ${tab === t.key ? 'style-1' : 'style-2'} px-6 py-3 rounded-lg font-medium transition-all duration-200 hover:shadow-md`}
                 onClick={() => setTab(t.key)}
                 type="button"
+                aria-label={`Open ${t.label} settings`}
               >
-                {t.label}
+                <i className={t.icon}></i>
+                <span>{t.label}</span>
               </button>
             ))}
           </div>
         </div>
-        {tab === 'general' && <SectionWrapper title="General Settings"><GeneralSection /></SectionWrapper>}
-        {tab === 'security' && <SectionWrapper title="Security"><SecuritySection /></SectionWrapper>}
-        {tab === 'couplingBol' && <SectionWrapper title="Coupling Bol"><CouplingBolSection /></SectionWrapper>}
-        {tab === 'productsVat' && <SectionWrapper title="Products & VAT"><ProductsVatSection /></SectionWrapper>}
-        {tab === 'invoice' && <SectionWrapper title="Invoice Settings"><InvoiceSettingsSection /></SectionWrapper>}
+        <div className="accordion">
+          {tab === 'general' && <SectionWrapper title="General Settings" open><GeneralSection /></SectionWrapper>}
+          {tab === 'security' && <SectionWrapper title="Security"><SecuritySection /></SectionWrapper>}
+          {tab === 'couplingBol' && <SectionWrapper title="Coupling Bol"><CouplingBolSection /></SectionWrapper>}
+          {tab === 'productsVat' && <SectionWrapper title="Products & VAT"><ProductsVatSection /></SectionWrapper>}
+          {tab === 'invoice' && <SectionWrapper title="Invoice Settings"><InvoiceSettingsSection /></SectionWrapper>}
+        </div>
       </div>
     </Layout>
   );
