@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-import { createContext, useContext, useState, useEffect, useCallback } from "react"
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { useShop } from "@/contexts/ShopContext"
 import { callApi } from "@/lib/api"
@@ -38,7 +37,7 @@ const initialStatus: OnboardingStatus = {
 
 export const OnboardingProvider = ({ children }: { children: React.ReactNode }) => {
   const { authenticated, token, isLoading: authIsLoading } = useAuth()
-  const { selectedShop } = useShop()
+  const { selectedShop, fetchShops } = useShop()
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus>(initialStatus)
   const [currentStep, setCurrentStep] = useState(1)
   
@@ -106,10 +105,15 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
         const appropriateStep = determineCurrentStep(data)
         setCurrentStepWithLog(appropriateStep)
       } else {
-        // Case 2: No shop selected (new shop) - set all steps to false
-        console.log('OnboardingContext: No shop selected, setting all steps to false')
-        setOnboardingStatus(initialStatus)
-        setCurrentStepWithLog(1) // Start at step 1 for new shop
+        // Case 2: No shop selected (new user) - fetch user-level onboarding status
+        console.log('OnboardingContext: No shop selected, fetching user-level onboarding status')
+        const data = await callApi('/settings/settings/onboarding/user-status', 'GET')
+        console.log('OnboardingContext: Fetched user-level status:', data)
+        setOnboardingStatus(data)
+        
+        // Automatically navigate to the appropriate step based on completion status
+        const appropriateStep = determineCurrentStep(data)
+        setCurrentStepWithLog(appropriateStep)
       }
     } catch (err) {
       console.error('OnboardingContext: Failed to fetch onboarding status:', err)
@@ -127,7 +131,9 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
       return Promise.reject(new Error("User not authenticated"))
     }
 
-    if (!selectedShop) {
+    // For Bol API step, allow completion without shop selection (it creates the shop)
+    const isBolApiStep = stepPayload.hasConfiguredBolApi === true
+    if (!selectedShop && !isBolApiStep) {
       setError("No shop selected. Cannot update onboarding step.")
       return Promise.reject(new Error("No shop selected"))
     }
@@ -136,8 +142,17 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
     setError(null)
 
     try {
-      console.log('OnboardingContext: Updating onboarding step for shop:', selectedShop.shopId, 'with payload:', stepPayload)
-      const updatedStatus = await callApi('/settings/settings/onboarding/status', 'POST', stepPayload, {}, selectedShop)
+      let updatedStatus
+      
+      if (selectedShop) {
+        // Case 1: Shop is selected - use shop-specific endpoint
+        console.log('OnboardingContext: Updating onboarding step for shop:', selectedShop.shopId, 'with payload:', stepPayload)
+        updatedStatus = await callApi('/settings/settings/onboarding/status', 'POST', stepPayload, {}, selectedShop)
+      } else {
+        // Case 2: No shop selected (Bol API step for new user) - use user-level endpoint
+        console.log('OnboardingContext: Updating user-level onboarding step with payload:', stepPayload)
+        updatedStatus = await callApi('/settings/settings/onboarding/user-status', 'POST', stepPayload)
+      }
       
       console.log('OnboardingContext: Step completion response:', updatedStatus)
       
@@ -146,6 +161,18 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
         ...prevStatus,
         ...updatedStatus
       }))
+
+      // If Bol API step was completed, refresh shops to get the newly created shop
+      if (stepPayload.hasConfiguredBolApi === true) {
+        console.log('OnboardingContext: Bol API step completed, refreshing shops to get newly created shop')
+        try {
+          await fetchShops()
+          console.log('OnboardingContext: Successfully refreshed shops after Bol API completion')
+        } catch (refreshError) {
+          console.error('OnboardingContext: Failed to refresh shops after Bol API completion:', refreshError)
+          // Don't throw error here as the main step completion was successful
+        }
+      }
 
       return updatedStatus
     } catch (err) {
@@ -165,7 +192,9 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
       return Promise.reject(new Error("User not authenticated"))
     }
 
-    if (!selectedShop) {
+    // For Bol API step, allow completion without shop selection (it creates the shop)
+    const isBolApiStep = stepName === 'hasConfiguredBolApi'
+    if (!selectedShop && !isBolApiStep) {
       setError("No shop selected. Cannot mark step as complete.")
       return Promise.reject(new Error("No shop selected"))
     }

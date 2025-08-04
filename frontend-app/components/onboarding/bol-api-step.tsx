@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CheckCircle, AlertCircle } from "lucide-react"
+import { callApi } from "@/lib/api"
 
 export function BolApiStep() {
   const { onboardingStatus, markStepAsComplete, isLoading, error } = useOnboarding()
@@ -18,12 +19,29 @@ export function BolApiStep() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!apiKey.trim() || !secret.trim()) {
+      return
+    }
+    
     setIsSubmitting(true)
     
     try {
-      await markStepAsComplete("hasConfiguredBolApi")
+      // Call backend API to save Bol credentials and create shop
+      console.log('BolApiStep: Saving Bol credentials and creating shop')
+      const response = await callApi('/settings/settings/coupling-bol', 'POST', {
+        bolClientId: apiKey.trim(),
+        bolClientSecret: secret.trim(),
+        shopName: `Bol.com Shop (${apiKey.trim()})`,
+        shopDescription: 'Bol.com connected store'
+      })
+      
+      console.log('BolApiStep: Successfully saved Bol credentials:', response)
       setSuccess(true)
-      // Remove automatic navigation - let the navigation buttons handle this
+      
+      // Update the onboarding context to mark this step as complete
+      // This will enable the Next button and update the progress
+      await markStepAsComplete("hasConfiguredBolApi")
     } catch (err) {
       console.error("Failed to configure Bol API:", err)
     } finally {

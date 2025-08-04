@@ -6,6 +6,8 @@ import { CustomButton } from "@/components/ui/custom-button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CheckCircle, AlertCircle, RefreshCw } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
+import { callApi } from "@/lib/api"
+import { useShop } from "@/contexts/ShopContext"
 
 export function ShopSyncStep() {
   const { 
@@ -16,15 +18,27 @@ export function ShopSyncStep() {
     isLoading,
     error 
   } = useOnboarding()
+  const { selectedShop } = useShop()
 
   const handleStartSync = async () => {
+    if (!selectedShop) {
+      console.error("No shop selected for sync")
+      return
+    }
+
     setShopSyncInProgress(true)
     
     try {
-      // Simulate shop sync process
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      // Call backend API to trigger actual offer sync from Bol.com
+      console.log('ShopSyncStep: Starting offer export and sync for shop:', selectedShop.shopId)
+      
+      // Trigger offer export from Bol.com - this is the actual sync process
+      await callApi('/shop/api/shop/offers/export/csv', 'GET', null, {}, selectedShop)
+      console.log('ShopSyncStep: Offer export and sync completed successfully!')
+      
+      // Mark step as complete after successful sync
       await markStepAsComplete("hasCompletedShopSync")
-      // Remove automatic navigation - let the navigation buttons handle this
+      console.log('ShopSyncStep: Shop sync step marked as complete')
     } catch (err) {
       console.error("Failed to complete shop sync:", err)
     } finally {

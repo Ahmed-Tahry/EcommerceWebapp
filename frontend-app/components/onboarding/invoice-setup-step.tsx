@@ -8,9 +8,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CheckCircle, AlertCircle } from "lucide-react"
+import { callApi } from "@/lib/api"
+import { useShop } from "@/contexts/ShopContext"
 
 export function InvoiceSetupStep() {
   const { onboardingStatus, markStepAsComplete, isLoading, error } = useOnboarding()
+  const { selectedShop } = useShop()
   const [vatNumber, setVatNumber] = useState("")
   const [companyName, setCompanyName] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -18,11 +21,35 @@ export function InvoiceSetupStep() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!selectedShop) {
+      console.error("No shop selected for invoice setup")
+      return
+    }
+    
+    if (!vatNumber.trim() || !companyName.trim()) {
+      return
+    }
+    
     setIsSubmitting(true)
     
     try {
-      await markStepAsComplete("hasCompletedInvoiceSetup")
+      // Call backend API to save invoice settings
+      console.log('InvoiceSetupStep: Saving invoice settings for shop:', selectedShop.shopId)
+      const invoiceSettings = {
+        vatNumber: vatNumber.trim(),
+        companyName: companyName.trim(),
+        invoicePrefix: 'INV',
+        invoiceNumberStart: 1
+      }
+      
+      const response = await callApi('/settings/settings/invoice', 'POST', invoiceSettings, {}, selectedShop)
+      console.log('InvoiceSetupStep: Successfully saved invoice settings:', response)
       setSuccess(true)
+      
+      // Mark step as complete after successful API call
+      await markStepAsComplete("hasCompletedInvoiceSetup")
+      console.log('InvoiceSetupStep: Invoice setup completed successfully')
     } catch (err) {
       console.error("Failed to complete invoice setup:", err)
     } finally {
