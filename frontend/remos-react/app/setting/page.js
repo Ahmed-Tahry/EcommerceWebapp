@@ -104,6 +104,7 @@ function GeneralSection() {
               required
               className="form-control"
             />
+            
           </div>
           <div className="form-group">
             <label htmlFor="surname">Surname</label>
