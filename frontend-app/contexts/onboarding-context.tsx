@@ -52,6 +52,28 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
   const [error, setError] = useState<string | null>(null)
   const [shopSyncInProgress, setShopSyncInProgress] = useState(false)
 
+  // Helper function to determine the appropriate step based on completion status
+  const determineCurrentStep = useCallback((status: OnboardingStatus) => {
+    // If all steps are complete, go to completion step (step 4)
+    if (status.hasConfiguredBolApi && status.hasCompletedShopSync && status.hasCompletedInvoiceSetup) {
+      console.log('OnboardingContext: All steps complete, navigating to step 4')
+      return 4
+    }
+    // If Bol API and Shop Sync are complete, go to Invoice Setup (step 3)
+    if (status.hasConfiguredBolApi && status.hasCompletedShopSync) {
+      console.log('OnboardingContext: Bol API and Shop Sync complete, navigating to step 3')
+      return 3
+    }
+    // If only Bol API is complete, go to Shop Sync (step 2)
+    if (status.hasConfiguredBolApi) {
+      console.log('OnboardingContext: Bol API complete, navigating to step 2')
+      return 2
+    }
+    // Otherwise, start at step 1
+    console.log('OnboardingContext: Starting at step 1')
+    return 1
+  }, [])
+
   // Centralized function to fetch onboarding status
   const fetchOnboardingStatus = useCallback(async () => {
     if (!authenticated || !token) {
@@ -79,10 +101,15 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
         console.log('OnboardingContext: Fetched shop-specific status:', data)
         console.log('OnboardingContext: Status details - hasConfiguredBolApi:', data.hasConfiguredBolApi, 'hasCompletedShopSync:', data.hasCompletedShopSync, 'hasCompletedInvoiceSetup:', data.hasCompletedInvoiceSetup)
         setOnboardingStatus(data)
+        
+        // Automatically navigate to the appropriate step based on completion status
+        const appropriateStep = determineCurrentStep(data)
+        setCurrentStepWithLog(appropriateStep)
       } else {
         // Case 2: No shop selected (new shop) - set all steps to false
         console.log('OnboardingContext: No shop selected, setting all steps to false')
         setOnboardingStatus(initialStatus)
+        setCurrentStepWithLog(1) // Start at step 1 for new shop
       }
     } catch (err) {
       console.error('OnboardingContext: Failed to fetch onboarding status:', err)
@@ -91,7 +118,7 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
     } finally {
       setIsLoading(false)
     }
-  }, [authenticated, token, selectedShop])
+  }, [authenticated, token, selectedShop, determineCurrentStep])
 
   // Case 3: Handle step completion responses
   const updateOnboardingStep = useCallback(async (stepPayload: Partial<OnboardingStatus>) => {
@@ -172,8 +199,7 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (authenticated && !authIsLoading) {
       console.log('OnboardingContext: Shop changed, fetching onboarding status')
-      // This line is no longer needed as step calculation is manual
-      setCurrentStepWithLog(1) // Reset to step 1 for new shop
+      // Let fetchOnboardingStatus determine the appropriate step automatically
       fetchOnboardingStatus()
     }
   }, [selectedShop, authenticated, authIsLoading, fetchOnboardingStatus])
