@@ -67,6 +67,7 @@ services:
       - ./keycloak_config/configure_keycloak_oidc.sh:/opt/keycloak/bin/configure_keycloak_oidc.sh
       - ./keycloak_config/configure_keycloak_roles.sh:/opt/keycloak/bin/configure_keycloak_roles.sh
       - ./keycloak_config/entrypoint.sh:/opt/keycloak/bin/entrypoint.sh
+      - ./keycloak_config/themes:/opt/keycloak/themes
     entrypoint: ["/opt/keycloak/bin/entrypoint.sh"]
     command: []
     networks:
