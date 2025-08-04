@@ -275,15 +275,22 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
             const appropriateStep = determineCurrentStep(data)
             setCurrentStepWithLog(appropriateStep)
           } else {
-            // Case 2: No shop selected (new user) - fetch user-level onboarding status
-            console.log('OnboardingContext: No shop selected, fetching user-level onboarding status')
-            const data = await callApi('/settings/settings/onboarding/user-status', 'GET')
-            console.log('OnboardingContext: Fetched user-level status:', data)
-            setOnboardingStatus(data)
+            // Case 2: No shop selected (creating new shop) - reset onboarding to start fresh
+            console.log('OnboardingContext: No shop selected, starting fresh onboarding for new shop')
             
-            // Automatically navigate to the appropriate step based on completion status
-            const appropriateStep = determineCurrentStep(data)
-            setCurrentStepWithLog(appropriateStep)
+            // For new shop creation, always start from step 1 with fresh status
+            const freshStatus = {
+              hasConfiguredBolApi: false,
+              hasCompletedShopSync: false,
+              hasCompletedInvoiceSetup: false
+            }
+            
+            console.log('OnboardingContext: Reset to fresh status for new shop:', freshStatus)
+            setOnboardingStatus(freshStatus)
+            
+            // Always start at step 1 for new shop creation
+            console.log('OnboardingContext: Starting at step 1 for new shop')
+            setCurrentStepWithLog(1)
           }
         } catch (err) {
           console.error('OnboardingContext: Failed to fetch onboarding status:', err)
