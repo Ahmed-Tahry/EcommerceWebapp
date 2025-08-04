@@ -246,26 +246,61 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
     }
   }, [currentStep])
 
-  // Case 1: Watch for shop changes
+  // Combined effect: Watch for authentication and shop changes
   useEffect(() => {
-    if (authenticated && !authIsLoading) {
-      console.log('OnboardingContext: Shop changed, fetching onboarding status')
-      // Let fetchOnboardingStatus determine the appropriate step automatically
-      fetchOnboardingStatus()
-    }
-  }, [selectedShop, authenticated, authIsLoading, fetchOnboardingStatus])
+    if (!authIsLoading && authenticated && token) {
+      console.log('OnboardingContext: Auth complete and shop state changed, fetching onboarding status')
+      
+      // Check if userId is available
+      const userId = localStorage.getItem('userId')
+      if (!userId) {
+        console.log('OnboardingContext: No userId in localStorage, waiting for auth to complete')
+        setIsLoading(false)
+        return
+      }
 
-  // Case 4: Initial page mount
-  useEffect(() => {
-    if (!authIsLoading && authenticated) {
-      console.log('OnboardingContext: Initial load, fetching onboarding status')
-      fetchOnboardingStatus()
+      setIsLoading(true)
+      setError(null)
+
+      const fetchStatus = async () => {
+        try {
+          if (selectedShop) {
+            // Case 1: Shop is selected - fetch shop-specific onboarding status
+            console.log('OnboardingContext: Fetching onboarding status for shop:', selectedShop.shopId)
+            const data = await callApi('/settings/settings/onboarding/status', 'GET', null, {}, selectedShop)
+            console.log('OnboardingContext: Fetched shop-specific status:', data)
+            setOnboardingStatus(data)
+            
+            // Automatically navigate to the appropriate step based on completion status
+            const appropriateStep = determineCurrentStep(data)
+            setCurrentStepWithLog(appropriateStep)
+          } else {
+            // Case 2: No shop selected (new user) - fetch user-level onboarding status
+            console.log('OnboardingContext: No shop selected, fetching user-level onboarding status')
+            const data = await callApi('/settings/settings/onboarding/user-status', 'GET')
+            console.log('OnboardingContext: Fetched user-level status:', data)
+            setOnboardingStatus(data)
+            
+            // Automatically navigate to the appropriate step based on completion status
+            const appropriateStep = determineCurrentStep(data)
+            setCurrentStepWithLog(appropriateStep)
+          }
+        } catch (err) {
+          console.error('OnboardingContext: Failed to fetch onboarding status:', err)
+          const errorMessage = (err && (err as Error).message) ? (err as Error).message : String(err)
+          setError(errorMessage || 'Failed to load onboarding status.')
+        } finally {
+          setIsLoading(false)
+        }
+      }
+      
+      fetchStatus()
     } else if (!authIsLoading && !authenticated) {
       // User not authenticated, reset status
       setOnboardingStatus(initialStatus)
       setIsLoading(false)
     }
-  }, [authIsLoading, authenticated, fetchOnboardingStatus])
+  }, [selectedShop, authIsLoading, authenticated, token])
 
   // All step calculation and navigation is now manual, controlled by the user.
 

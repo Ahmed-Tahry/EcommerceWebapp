@@ -39,7 +39,7 @@ export default function ProductsVatSettings() {
     
     try {
       console.log('ProductsVatSettings: Fetching products for shop:', selectedShop.shopId);
-      const response = await callApi('/shop/products', 'GET', null, {}, selectedShop);
+      const response = await callApi('/shop/api/shop/products', 'GET', null, selectedShop);
       console.log('ProductsVatSettings: Products response:', response);
       
       if (response && response.products) {
@@ -78,7 +78,7 @@ export default function ProductsVatSettings() {
         shopId: selectedShop.shopId
       };
 
-      await callApi(`/shop/products/${ean}/vat`, 'PUT', vatData, {}, selectedShop);
+      await callApi(`/shop/api/shop/products/${ean}/vat`, 'PUT', vatData, selectedShop);
       
       toast.success(`VAT rate updated to ${newVatRate}% for product`);
       await fetchProducts();

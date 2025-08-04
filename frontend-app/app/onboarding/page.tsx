@@ -99,9 +99,6 @@ function OnboardingContent() {
 
   // Helper function to determine if a step can be accessed
   const canGoToStep = (stepId: number) => {
-    // If no shop is selected, only step 1 is accessible
-    if (!selectedShop && stepId !== 1) return false
-    
     // Can always go to current step or previous steps
     if (stepId <= currentStep) return true
     
