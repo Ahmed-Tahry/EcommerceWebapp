@@ -70,12 +70,19 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
         const savedShop = data.find((shop: Shop) => shop.shopId === savedShopId);
         if (savedShop) {
           setSelectedShop(savedShop);
+          console.log('ShopContext: Restored saved shop:', savedShop);
         } else {
+          // Saved shop not found, remove from localStorage and select first shop
           localStorage.removeItem('selectedShopId');
-          setSelectedShop(null);
+          if (data.length > 0) {
+            setSelectedShop(data[0]);
+            console.log('ShopContext: Saved shop not found, selected first shop:', data[0]);
+          }
         }
-      } else if (data.length === 1 && !selectedShop) {
+      } else if (data.length > 0 && !selectedShop) {
+        // No saved shop, select first available shop
         setSelectedShop(data[0]);
+        console.log('ShopContext: No saved shop, selected first shop:', data[0]);
       }
     } catch (err: any) {
       console.error('ShopContext: Error fetching shops:', err);
