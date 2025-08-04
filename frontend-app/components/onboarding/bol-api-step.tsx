@@ -27,14 +27,20 @@ export function BolApiStep() {
     setIsSubmitting(true)
     
     try {
+      // Use the bolClientId as the shopId (matching remos-react implementation)
+      const shopId = apiKey.trim()
+      
+      console.log('BolApiStep: Submitting Bol credentials with shopId (bolClientId):', shopId)
+      
       // Call backend API to save Bol credentials and create shop
-      console.log('BolApiStep: Saving Bol credentials and creating shop')
+      // Pass shopId both in body and as selectedShop parameter for headers
       const response = await callApi('/settings/settings/coupling-bol', 'POST', {
         bolClientId: apiKey.trim(),
         bolClientSecret: secret.trim(),
-        shopName: `Bol Shop`,
-        shopDescription: 'Bol.com connected store'
-      })
+        shopName: `Bol-${shopId.substring(0, 8)}`,
+        shopDescription: 'Bol.com connected store',
+        shopId: shopId // This is the bolClientId
+      }, {}, { shopId }) // Pass shopId for X-Shop-ID header
       
       console.log('BolApiStep: Successfully saved Bol credentials:', response)
       setSuccess(true)
