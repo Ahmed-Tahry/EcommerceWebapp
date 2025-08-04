@@ -55,9 +55,9 @@ router.post('/invoice', validateUserAndShopId, SettingsController.saveInvoiceSet
 router.get('/general', validateUserAndShopId, SettingsController.getGeneralSettingsHandler);
 router.post('/general', validateUserAndShopId, SettingsController.saveGeneralSettingsHandler);
 
-// Coupling Bol routes - Use validateUserId since we're creating a new shop
-router.get('/coupling-bol', validateUserId, SettingsController.getCouplingBolHandler);
-router.post('/coupling-bol', validateUserId, SettingsController.saveCouplingBolHandler);
+// Coupling Bol routes - Use validateUserAndShopId since we need shopId for existing shops
+router.get('/coupling-bol', validateUserAndShopId, SettingsController.getCouplingBolHandler);
+router.post('/coupling-bol', validateUserAndShopId, SettingsController.saveCouplingBolHandler);
 
 // Onboarding status routes
 router.get('/onboarding/status', validateUserAndShopId, SettingsController.getOnboardingStatusHandler);

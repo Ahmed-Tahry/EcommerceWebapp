@@ -20,6 +20,13 @@ export const callApi = async (
   additionalHeaders: Record<string, string> = {},
   selectedShop?: any
 ): Promise<any> => {
+  console.log('API: callApi called with:');
+  console.log('API: endpoint:', endpoint);
+  console.log('API: method:', method);
+  console.log('API: body:', body);
+  console.log('API: additionalHeaders:', additionalHeaders);
+  console.log('API: selectedShop:', selectedShop);
+  
   let token: string | null = null;
   const kcInstance = getKeycloakInstance();
 
@@ -50,17 +57,28 @@ export const callApi = async (
 
   // Add shop ID from parameter or localStorage if available
   let selectedShopId: string | null = selectedShop ? selectedShop.shopId : null;
+  console.log('API: selectedShop object:', selectedShop);
+  console.log('API: selectedShopId from selectedShop:', selectedShopId);
+  
   if (!selectedShopId) {
     selectedShopId = localStorage.getItem('selectedShopId');
+    console.log('API: selectedShopId from localStorage:', selectedShopId);
   }
   
   if (selectedShopId) {
     headers['X-Shop-ID'] = selectedShopId;
+    console.log('API: Added X-Shop-ID header:', selectedShopId);
+  } else {
+    console.log('API: No shopId available, X-Shop-ID header not added');
   }
 
   // Add user ID from token if available
   if (kcInstance && kcInstance.tokenParsed) {
-    headers['X-User-ID'] = kcInstance.tokenParsed.sub || '';
+    const userId = kcInstance.tokenParsed.sub || '';
+    headers['X-User-ID'] = userId;
+    console.log('API: Added X-User-ID header:', userId);
+  } else {
+    console.log('API: No user ID available from token');
   }
 
   const config: RequestInit = {
@@ -74,27 +92,37 @@ export const callApi = async (
   }
 
   const url = `${API_BASE_URL}${endpoint}`;
+  
+  console.log('API: Final request configuration:');
+  console.log('API: URL:', url);
+  console.log('API: Method:', method);
+  console.log('API: Headers:', headers);
+  console.log('API: Body:', body);
 
   try {
+    console.log('API: Making fetch request...');
     const response = await fetch(url, config);
+    console.log('API: Response received:', response.status, response.statusText);
 
     if (!response.ok) {
-      let errorData: any;
-      try {
-        errorData = await response.json();
-      } catch (e) {
-        // If response is not JSON, use status text
-        errorData = { message: response.statusText };
-      }
-      
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`API call failed: ${response.status} ${response.statusText}`, errorText);
+      console.error('API: Failed request details:');
+      console.error('API: URL:', url);
+      console.error('API: Headers sent:', headers);
+      console.error('API: Body sent:', body);
+      throw new Error(errorText || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     const data = await response.json();
+    console.log('API: Response data:', data);
     return data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('API call failed:', error);
+    console.error('API: Error details:');
+    console.error('API: URL:', url);
+    console.error('API: Headers sent:', headers);
+    console.error('API: Body sent:', body);
     throw error;
-    throw error; // Re-throw the error to be caught by the caller
   }
 };
