@@ -1,301 +1,371 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
-import { callApi } from "@/lib/api";
-import { useShop } from "@/contexts/ShopContext";
-import { Loader2, Package, Plus, Trash2, Edit } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-
-interface VatRate {
-  id: string;
-  country: string;
-  vatRate: number;
-  productId?: string;
-}
+import { useState, useEffect } from 'react';
+import { useShop } from '@/contexts/ShopContext';
+import { callApi } from '@/lib/api';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
+import { Package, Percent, Edit, Loader2 } from 'lucide-react';
 
 interface Product {
-  id: string;
-  name: string;
-  sku: string;
-  price: number;
+  ean: string;
+  title?: string | null;
+  description?: string | null;
+  brand?: string | null;
+  mainImageUrl?: string | null;
+  vatRate?: number | null;
+  country?: string | null;
+  userId?: string;
+  shopId?: string;
 }
 
-export function ProductsVatSettings() {
+export default function ProductsVatSettings() {
+  const { selectedShop, loading: shopLoading } = useShop();
   const [products, setProducts] = useState<Product[]>([]);
-  const [vatRates, setVatRates] = useState<VatRate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [vatForm, setVatForm] = useState({
-    country: '',
-    vatRate: '',
-  });
-  const [isVatDialogOpen, setIsVatDialogOpen] = useState(false);
-  const { toast } = useToast();
-  const { selectedShop } = useShop();
+  const [updating, setUpdating] = useState<string | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedShop]);
-
-  async function fetchData() {
-    if (!selectedShop) {
-      setLoading(false);
-      return;
-    }
+  const fetchProducts = async () => {
+    if (!selectedShop) return;
     
     try {
-      setLoading(true);
-      // Fetch products and VAT rates
-      const [productsData, vatData] = await Promise.all([
-        // For now, we'll use mock data since the backend might not have product endpoints
-        Promise.resolve([
-          { id: '1', name: 'Sample Product 1', sku: 'SKU001', price: 29.99 },
-          { id: '2', name: 'Sample Product 2', sku: 'SKU002', price: 49.99 },
-        ]),
-        callApi('/settings/settings/vat', 'GET', undefined, {}, selectedShop).catch(() => [])
-      ]);
+      console.log('ProductsVatSettings: Fetching products for shop:', selectedShop.shopId);
+      const response = await callApi('/shop/products', 'GET', null, {}, selectedShop);
+      console.log('ProductsVatSettings: Products response:', response);
       
-      setProducts(productsData);
-      setVatRates(vatData || []);
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: "Failed to load products and VAT settings.",
-        variant: "destructive",
+      if (response && response.products) {
+        setProducts(response.products);
+      } else {
+        setProducts([]);
+      }
+    } catch (error) {
+      console.error('ProductsVatSettings: Failed to fetch products:', error);
+      toast.error('Failed to load products');
+      setProducts([]);
+    }
+  };
+
+  useEffect(() => {
+    if (!shopLoading && selectedShop) {
+      fetchProducts().finally(() => {
+        setLoading(false);
       });
-    } finally {
+    } else if (!shopLoading && !selectedShop) {
       setLoading(false);
     }
-  }
+  }, [selectedShop, shopLoading]);
 
-  function handleVatFormChange(field: string, value: string) {
-    setVatForm(prev => ({ ...prev, [field]: value }));
-  }
+  const handleUpdateProductVat = async (ean: string, newVatRate: number, country: string = 'NL') => {
+    if (!selectedShop) return;
 
-  async function handleVatSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedProduct) return;
-
-    setSaving(true);
+    setUpdating(ean);
     try {
+      console.log(`ProductsVatSettings: Updating VAT for product ${ean} to ${newVatRate}%`);
+      
       const vatData = {
-        country: vatForm.country,
-        vatRate: parseFloat(vatForm.vatRate),
-        productId: selectedProduct.id,
+        ean,
+        country,
+        vatRate: newVatRate,
+        shopId: selectedShop.shopId
       };
 
-      await callApi('/settings/settings/vat', 'POST', vatData, {}, selectedShop);
+      await callApi(`/shop/products/${ean}/vat`, 'PUT', vatData, {}, selectedShop);
       
-      toast({
-        title: "Success",
-        description: "VAT rate saved successfully!",
-      });
-      
-      setVatForm({ country: '', vatRate: '' });
-      setIsVatDialogOpen(false);
-      fetchData(); // Refresh data
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: "Failed to save VAT rate.",
-        variant: "destructive",
-      });
+      toast.success(`VAT rate updated to ${newVatRate}% for product`);
+      await fetchProducts();
+    } catch (error) {
+      console.error('ProductsVatSettings: Failed to update product VAT:', error);
+      toast.error('Failed to update VAT rate');
     } finally {
-      setSaving(false);
+      setUpdating(null);
     }
-  }
+  };
 
-  async function handleDeleteVatRate(vatId: string) {
-    try {
-      await callApi(`/settings/settings/vat/${vatId}`, 'DELETE', undefined, {}, selectedShop);
-      toast({
-        title: "Success",
-        description: "VAT rate deleted successfully!",
-      });
-      fetchData(); // Refresh data
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: "Failed to delete VAT rate.",
-        variant: "destructive",
-      });
-    }
-  }
-
-  if (loading) {
+  if (shopLoading) {
     return (
-      <div className="flex justify-center items-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+        </div>
       </div>
+    );
+  }
+
+  if (!selectedShop) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Package className="h-5 w-5" />
+            Products & VAT Settings
+          </CardTitle>
+          <CardDescription>
+            Please select a shop to manage products and VAT settings.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Products Section */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Package className="h-5 w-5" />
-            Products
-          </CardTitle>
-          <CardDescription>
-            Manage your products and their VAT configurations
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {products.length === 0 ? (
-            <div className="text-center py-8">
-              <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No products found</p>
-              <p className="text-sm text-muted-foreground">Products will be synchronized from Bol.com</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Products & VAT Management
+              </CardTitle>
+              <CardDescription>
+                Manage VAT rates for all products in your shop. Click Edit VAT to update rates.
+              </CardDescription>
             </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product Name</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {products.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell className="font-medium">{product.name}</TableCell>
-                    <TableCell>{product.sku}</TableCell>
-                    <TableCell>€{product.price.toFixed(2)}</TableCell>
-                    <TableCell>
-                      <Dialog open={isVatDialogOpen} onOpenChange={setIsVatDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedProduct(product)}
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            Add VAT
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Add VAT Rate</DialogTitle>
-                            <DialogDescription>
-                              Configure VAT rate for {selectedProduct?.name}
-                            </DialogDescription>
-                          </DialogHeader>
-                          <form onSubmit={handleVatSubmit}>
-                            <div className="space-y-4 py-4">
-                              <div className="space-y-2">
-                                <Label htmlFor="country">Country</Label>
-                                <Select
-                                  value={vatForm.country}
-                                  onValueChange={(value) => handleVatFormChange('country', value)}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select country" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="NL">Netherlands</SelectItem>
-                                    <SelectItem value="BE">Belgium</SelectItem>
-                                    <SelectItem value="DE">Germany</SelectItem>
-                                    <SelectItem value="FR">France</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="vatRate">VAT Rate (%)</Label>
-                                <Input
-                                  id="vatRate"
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  max="100"
-                                  value={vatForm.vatRate}
-                                  onChange={(e) => handleVatFormChange('vatRate', e.target.value)}
-                                  placeholder="Enter VAT rate"
-                                  required
-                                />
-                              </div>
-                            </div>
-                            <DialogFooter>
-                              <Button type="submit" disabled={saving}>
-                                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Save VAT Rate
-                              </Button>
-                            </DialogFooter>
-                          </form>
-                        </DialogContent>
-                      </Dialog>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* VAT Rates Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>VAT Rates</CardTitle>
-          <CardDescription>
-            Configured VAT rates for your products by country
-          </CardDescription>
+            <Button onClick={() => fetchProducts()} variant="outline">
+              Refresh Products
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {vatRates.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground">No VAT rates configured</p>
-              <p className="text-sm text-muted-foreground">Add VAT rates for your products above</p>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin mr-2" />
+              <span>Loading products...</span>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Product</TableHead>
-                  <TableHead>Country</TableHead>
-                  <TableHead>VAT Rate</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>EAN</TableHead>
+                  <TableHead>Brand</TableHead>
+                  <TableHead>Current VAT Rate</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {vatRates.map((vatRate) => {
-                  const product = products.find(p => p.id === vatRate.productId);
-                  return (
-                    <TableRow key={vatRate.id}>
-                      <TableCell className="font-medium">
-                        {product?.name || 'Unknown Product'}
-                      </TableCell>
-                      <TableCell>{vatRate.country}</TableCell>
-                      <TableCell>{vatRate.vatRate}%</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeleteVatRate(vatRate.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {products.map((product) => (
+                  <TableRow key={product.ean}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        {product.mainImageUrl && (
+                          <img 
+                            src={product.mainImageUrl} 
+                            alt={product.title || 'Product'}
+                            className="w-10 h-10 rounded object-cover"
+                          />
+                        )}
+                        <div>
+                          <div className="font-medium">
+                            {product.title || 'Untitled Product'}
+                          </div>
+                          {product.description && (
+                            <div className="text-sm text-muted-foreground truncate max-w-[200px]">
+                              {product.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{product.ean}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {product.brand || 'No brand'}
+                    </TableCell>
+                    <TableCell>
+                      {product.vatRate !== null && product.vatRate !== undefined ? (
+                        <Badge variant="secondary">{product.vatRate}%</Badge>
+                      ) : (
+                        <Badge variant="outline">Not set</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditingProduct(product);
+                          setIsEditModalOpen(true);
+                        }}
+                        disabled={updating === product.ean}
+                      >
+                        {updating === product.ean ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit VAT
+                          </>
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {products.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                      <div className="flex flex-col items-center gap-2">
+                        <Package className="h-8 w-8 text-muted-foreground/50" />
+                        <div>No products found in this shop</div>
+                        <div className="text-sm">
+                          Products will appear here once you add them to your shop or sync from Bol.com
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Product VAT Modal */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Percent className="h-5 w-5" />
+              Update VAT Rate
+            </DialogTitle>
+            <DialogDescription>
+              Update the VAT rate for {editingProduct?.title || editingProduct?.ean}
+            </DialogDescription>
+          </DialogHeader>
+          {editingProduct && (
+            <ProductVatEditForm
+              product={editingProduct}
+              onSave={handleUpdateProductVat}
+              onClose={() => {
+                setIsEditModalOpen(false);
+                setEditingProduct(null);
+              }}
+              isUpdating={updating === editingProduct.ean}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function ProductVatEditForm({ 
+  product, 
+  onSave, 
+  onClose,
+  isUpdating
+}: { 
+  product: Product; 
+  onSave: (ean: string, vatRate: number, country: string) => void; 
+  onClose: () => void;
+  isUpdating: boolean;
+}) {
+  const [vatRate, setVatRate] = useState(product.vatRate?.toString() || '');
+  const [country, setCountry] = useState(product.country || 'NL');
+
+  const commonVatRates = [
+    { value: '0', label: '0% (Exempt)' },
+    { value: '9', label: '9% (Reduced Rate)' },
+    { value: '21', label: '21% (Standard Rate)' },
+  ];
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const rate = parseFloat(vatRate);
+    if (isNaN(rate) || rate < 0 || rate > 100) {
+      toast.error('Please enter a valid VAT rate between 0 and 100');
+      return;
+    }
+    onSave(product.ean, rate, country);
+    onClose();
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div className="space-y-4 py-4">
+        <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+          {product.mainImageUrl && (
+            <img 
+              src={product.mainImageUrl} 
+              alt={product.title || 'Product'}
+              className="w-12 h-12 rounded object-cover"
+            />
+          )}
+          <div>
+            <div className="font-medium">{product.title || 'Untitled Product'}</div>
+            <div className="text-sm text-muted-foreground">EAN: {product.ean}</div>
+            {product.brand && (
+              <div className="text-sm text-muted-foreground">Brand: {product.brand}</div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="vatRate">VAT Rate (%)</Label>
+          <Select value={vatRate} onValueChange={setVatRate}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select VAT rate" />
+            </SelectTrigger>
+            <SelectContent>
+              {commonVatRates.map((rate) => (
+                <SelectItem key={rate.value} value={rate.value}>
+                  {rate.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            id="vatRate"
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={vatRate}
+            onChange={(e) => setVatRate(e.target.value)}
+            placeholder="Or enter custom rate"
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="country">Country</Label>
+          <Select value={country} onValueChange={setCountry}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="NL">Netherlands</SelectItem>
+              <SelectItem value="BE">Belgium</SelectItem>
+              <SelectItem value="DE">Germany</SelectItem>
+              <SelectItem value="FR">France</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isUpdating}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isUpdating}>
+          {isUpdating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              Updating...
+            </>
+          ) : (
+            'Update VAT Rate'
+          )}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

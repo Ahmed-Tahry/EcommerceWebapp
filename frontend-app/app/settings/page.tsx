@@ -10,7 +10,7 @@ import { useShop } from "@/contexts/ShopContext"
 import { GeneralSettings } from "@/components/settings/general-settings"
 import { SecuritySettings } from "@/components/settings/security-settings"
 import { CouplingBolSettings } from "@/components/settings/coupling-bol-settings"
-import { ProductsVatSettings } from "@/components/settings/products-vat-settings"
+import ProductsVatSettings from "@/components/settings/products-vat-settings"
 import { InvoiceSettings } from "@/components/settings/invoice-settings"
 
 const SETTINGS_TABS = [
