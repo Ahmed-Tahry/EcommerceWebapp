@@ -18,6 +18,7 @@ interface OnboardingContextType {
   error: string | null
   updateOnboardingStep: (stepPayload: Partial<OnboardingStatus>) => Promise<any>
   markStepAsComplete: (stepName: keyof OnboardingStatus) => Promise<any>
+  completeOnboarding: () => Promise<void>
   goToNextStep: () => void
   goToPreviousStep: () => void
   fetchOnboardingStatus: () => Promise<void>
@@ -202,6 +203,27 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
     return await updateOnboardingStep({ [stepName]: true })
   }, [updateOnboardingStep, authenticated, selectedShop])
 
+  // Complete onboarding function
+  const completeOnboarding = useCallback(async () => {
+    if (!authenticated || !selectedShop) {
+      console.log('OnboardingContext: Cannot complete onboarding - not authenticated or no shop selected')
+      return
+    }
+
+    try {
+      // Mark all steps as complete
+      await updateOnboardingStep({
+        hasConfiguredBolApi: true,
+        hasCompletedShopSync: true,
+        hasCompletedInvoiceSetup: true
+      })
+      console.log('OnboardingContext: Onboarding completed successfully')
+    } catch (error) {
+      console.error('OnboardingContext: Error completing onboarding:', error)
+      throw error
+    }
+  }, [updateOnboardingStep, authenticated, selectedShop])
+
   // Navigation functions
   const goToNextStep = useCallback(() => {
     const newStep = currentStep + 1
@@ -254,6 +276,7 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
     error,
     updateOnboardingStep,
     markStepAsComplete,
+    completeOnboarding,
     selectedShop,
     shopSyncInProgress,
     setShopSyncInProgress,

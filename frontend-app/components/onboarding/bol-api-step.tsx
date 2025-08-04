@@ -32,7 +32,7 @@ export function BolApiStep() {
       const response = await callApi('/settings/settings/coupling-bol', 'POST', {
         bolClientId: apiKey.trim(),
         bolClientSecret: secret.trim(),
-        shopName: `Bol.com Shop (${apiKey.trim()})`,
+        shopName: `Bol Shop`,
         shopDescription: 'Bol.com connected store'
       })
       
